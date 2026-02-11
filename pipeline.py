@@ -1,4 +1,8 @@
 import gc
+from data_io import load_fits, load_hdf, load_flats, load_darks
+from processing import calibrate, fits_to_cv
+from analysis import run_analysis
+from plotting import make_plots, plot_image_grid
 
 class Pipeline:
     def __init__(self, fits_dir, hdf_dir, flat_dir, dark_dir, output_dir, logger):
@@ -15,8 +19,6 @@ class Pipeline:
 
 
     def load(self):
-        from data_io import load_fits, load_hdf, load_flats, load_darks
-
         self.logger.info("Loading data")
         self.raw_data["fits"] = load_fits(self.fits_dir, logger=self.logger)
         self.raw_data["hdf"] = load_hdf(self.hdf_dir, logger=self.logger)
@@ -24,7 +26,6 @@ class Pipeline:
         self.raw_data["darks"] = load_darks(self.dark_dir, logger=self.logger)
 
     def process(self):
-        from processing import calibrate, fits_to_cv
         self.logger.info("Processing data")
         self.calibrated_data = calibrate(
             self.raw_data["fits"],
@@ -37,59 +38,16 @@ class Pipeline:
         self._release_raw_data()
 
     def analyze(self):
-        from analysis import run_analysis
-
         self.logger.info("Analyzing data")
         self.results = run_analysis(self.calibrated_data)
 
     def plot(self):
-        from plotting import make_plots, plot_image_grid
-
         self.logger.info("Plotting results")
         make_plots(self.calibrated_data, self.results, self.output_dir)
 
         # CALIBRATED DATA NO LONGER NEEDED
         self._release_calibrated_data()
 
-
-    def plot_image_grid(
-        self,
-        key: str,
-        indices=None,
-        n_images: int = 6,
-        suptitle: str | None = None,
-        cmap: str = "gray",
-    ) -> None:
-        """
-        Plot images stored in self.raw_data using a uniform grid.
-
-        Parameters
-        ----------
-        key : str
-            Key in self.raw_data dict (e.g. "fits", "calibrated").
-
-        indices : list[int] | slice | None
-            Which images to plot. If None, the first n_images are used.
-
-        n_images : int
-            Number of images to plot if indices is None.
-
-        suptitle : str, optional
-            Figure title.
-        """
-
-        if key not in self.raw_data:
-            raise KeyError(f"No data stored under key '{key}'")
-
-        images = self.raw_data[key]
-
-        plot_image_grid(
-            images=images,
-            indices=indices,
-            n_images=n_images,
-            suptitle=suptitle,
-            cmap=cmap,
-        )
 
     # --------------------------------------------------
     # Memory management helpers
@@ -122,6 +80,7 @@ class Pipeline:
     def run(self):
         self.logger.info("Pipeline started")
         self.load()
+        plot_image_grid(self.raw_data["fits"])
         self.process()
         self.analyze()
         self.plot()
