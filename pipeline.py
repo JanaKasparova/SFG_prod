@@ -1,8 +1,11 @@
 import gc
-from data_io import load_fits, load_hdf, load_flats, load_darks
+from data_io import load_fits, load_hdf, load_flats, load_darks, get_hdf_paths
 from processing import calibrate, fits_to_cv
 from analysis import run_analysis
 from plotting import make_plots, plot_image_grid
+from FICUS.PYTHON.OCAS_lib import Light, Calibration, Measurement
+from FICUS.PYTHON.NormalizationModule import Normalization, Linearity
+import numpy as np
 
 class Pipeline:
     def __init__(self, fits_dir, hdf_dir, flat_dir, dark_dir, output_dir, logger):
@@ -12,13 +15,16 @@ class Pipeline:
         self.dark_dir = dark_dir
         self.output_dir = output_dir
         self.logger = logger
-
+        
         self.raw_data = {}
         self.calibrated_data = {}
         self.results = {}
 
 
     def load(self):
+        self.logger.info("Loading wavelengths")
+        self.wlc = np.load("./FICUS/useful_files/WL_range_C.npy")
+        self.wld = np.load("./FICUS/useful_files/WL_range_D.npy")
         self.logger.info("Loading data")
         self.raw_data["fits"] = load_fits(self.fits_dir, logger=self.logger)
         self.raw_data["hdf"] = load_hdf(self.hdf_dir, logger=self.logger)
