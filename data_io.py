@@ -97,7 +97,7 @@ def load_hdf(hdf_dir, logger=None):
 
 
 
-def load_hdf_light(hdf_dir: str, light_idx: int, logger=None) -> Tuple[np.ndarray, np.ndarray]:
+def load_hdf_light(hdf_dir: str, light_idx: int, logger=None) -> tuple[np.ndarray, np.ndarray]:
     """
     Load C and D light HDF files (spectrum) from a directory and return their data arrays.
 
