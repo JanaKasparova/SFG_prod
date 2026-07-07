@@ -6,13 +6,15 @@ from typing import List, Optional
 from FICUS.PYTHON.OCAS_lib import Light, Calibration, Measurement
 from FICUS.PYTHON.NormalizationModule import Normalization, Linearity
 from typing import Tuple, Optional
-import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.widgets import Slider, Button
 from plotting import *
 from processing import *
 from analysis import *
+import re
+from astropy.time import Time
+
 
 def load_fits_img(path: str, logger=None):
     """
@@ -288,3 +290,76 @@ def select_roi_with_sliders(imgs: np.ndarray, vmax: float = 50000, cmap: str = "
 
     # Keep references alive inside system memory tracking registries so widgets don't freeze up
     return [slider_xmin, slider_xmax, slider_ymin, slider_ymax, export_btn]
+
+
+
+def extract_astropy_time(filepath: str, logger=None) -> Time:
+    """
+    Extracts a timestamp from a SlitJaw filename string and converts
+    it into an astropy.time.Time object using explicit microsecond definitions.
+    """
+    filename = os.path.basename(filepath)
+
+    # Separates the 2-digit seconds (\d{2}) and the trailing microseconds (\d+) explicitly
+    pattern = r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.(\d+)"
+    match = re.search(pattern, filename)
+
+    if not match:
+        error_msg = f"Could not extract a valid timestamp pattern from filename: {filename}"
+        if logger:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    # Unpack all groups, explicitly isolating the microsecond digits
+    year, month, day, hour, minute, second, microsecond = match.groups()
+
+    # Construct the high-precision ISO definition string
+    iso_string = f"{year}-{month}-{day} {hour}:{minute}:{second}.{microsecond}"
+
+    return Time(iso_string, format="iso", scale="utc")
+
+
+def compile_directory_timestamps(directory_path: str, logger=None) -> np.ndarray:
+    """
+    Scans a directory for files matching the SlitJaw timestamp pattern,
+    extracts their times, and returns a sorted NumPy array of Astropy Time objects.
+    """
+    if not os.path.isdir(directory_path):
+        error_msg = f"Provided directory path does not exist: {directory_path}"
+        if logger:
+            logger.error(error_msg)
+        raise FileNotFoundError(error_msg)
+
+    if logger:
+        logger.info(f"Scanning directory for timestamps: {directory_path}")
+
+    # Naming pattern to identify valid target files and filter out system artifacts
+    target_pattern = r"\d{8}_\d{6}\.\d+"
+
+    # 1. Gather and sort filenames to maintain chronological sequence order
+    all_files = sorted(os.listdir(directory_path))
+    valid_files = [f for f in all_files if re.search(target_pattern, f)]
+
+    if not valid_files:
+        if logger:
+            logger.warning(f"No files matching the timestamp pattern were found in {directory_path}")
+        return np.array([], dtype=object)
+
+    # 2. Process files sequentially through the extractor
+    time_objects_list = []
+    for file_name in valid_files:
+        full_path = os.path.join(directory_path, file_name)
+        try:
+            t_obj = extract_astropy_time(full_path, logger=logger)
+            time_objects_list.append(t_obj)
+        except ValueError:
+            # Skip file if parsing fails edge-cases
+            continue
+
+    # 3. Pack into a standard object-type NumPy array
+    time_array = np.array(time_objects_list, dtype=object)
+
+    if logger:
+        logger.info(f"Successfully compiled {len(time_array)} time objects into NumPy array.")
+
+    return time_array

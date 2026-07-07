@@ -158,43 +158,84 @@ def crop_images(imgs: np.ndarray, xmin: int, ymin: int, xmax: int, ymax: int, co
         logger.info(f"Shape of cropped images array: {cropped.shape}")
     return cropped
 
-# def correct_dark(imgs: np.ndarray, dark: np.ndarray, logger=None) -> np.ndarray:
+
+# def correct_dark(
+#         imgs: np.ndarray,
+#         dark: np.ndarray,
+#         align_dark: bool = False,
+#         num_peaks: int = 20,
+#         logger=None
+# ) -> np.ndarray:
 #     """
-#     Subtract dark frame from images.
-#
-#     Parameters
-#     ----------
-#     imgs : np.ndarray
-#         Input image array of shape (N, H, W, C) or (H, W, C).
-#     dark : np.ndarray
-#         Dark frame to subtract.
-#     logger : optional
-#         Logger with .debug() method.
-#
-#     Returns
-#     -------
-#     np.ndarray
-#         Dark-corrected image array.
+#     Subtract dark frame from images, with automatic coordinate-based
+#     hot pixel alignment to ensure a perfect match before subtraction.
 #     """
+#     working_dark = dark.copy()
+#
+#     if align_dark:
+#         if logger is not None:
+#             logger.info("Automatically aligning dark frame hot pixels...")
+#
+#         # 1. Isolate spatial 2D templates for peak detection
+#         img_ref = imgs[0] if imgs.ndim > 2 else imgs
+#         if img_ref.ndim == 3:
+#             img_ref = np.mean(img_ref, axis=-1)
+#         dark_ref = dark if dark.ndim == 2 else np.mean(dark, axis=-1)
+#
+#         # 2. Find coordinates of the brightest 'num_peaks' pixels in both frames
+#         # Flat indices of top peaks
+#         img_flat_idx = np.argsort(img_ref.ravel())[-num_peaks:]
+#         dark_flat_idx = np.argsort(dark_ref.ravel())[-num_peaks:]
+#
+#         # Convert to (Y, X) coordinate pairs
+#         img_coords = np.array(np.unravel_index(img_flat_idx, img_ref.shape)).T
+#         dark_coords = np.array(np.unravel_index(dark_flat_idx, dark_ref.shape)).T
+#
+#         # 3. Calculate the shift by finding the average matching displacement
+#         # We calculate the median difference between the coordinates
+#         # Sorting them by magnitude helps match the relative structural pairs
+#         img_coords_sorted = img_coords[np.lexsort((img_coords[:, 1], img_coords[:, 0]))]
+#         dark_coords_sorted = dark_coords[np.lexsort((dark_coords[:, 1], dark_coords[:, 0]))]
+#
+#         shifts = img_coords_sorted - dark_coords_sorted
+#
+#         # Take the median shift vector to ignore outliers (like cosmic rays or stars)
+#         computed_shift = np.median(shifts, axis=0)
+#
+#         if logger is not None:
+#             logger.info(f"Automatically aligned dark frame shift (Y, X): {computed_shift}")
+#
+#         # 4. Apply the spatial shift to the entire dark frame
+#         if dark.ndim == 3:
+#             spatial_shift = (computed_shift[0], computed_shift[1], 0)
+#             working_dark = shift(dark, spatial_shift, mode='nearest')
+#         else:
+#             working_dark = shift(dark, computed_shift, mode='nearest')
+#
+#     # 5. Subtract the aligned dark frame
 #     if logger is not None:
-#         logger.info("Correcting images with dark frame")
-#     corrected = imgs - dark
-#     corrected = np.clip(corrected, 0, None)  # Ensure no negative values
+#         logger.info("Subtracting aligned dark frame")
+#
+#     corrected = imgs - working_dark
+#     corrected = np.clip(corrected, 0, None)
+#
 #     if logger is not None:
 #         logger.info(f"Shape of dark corrected images array: {corrected.shape}")
+#
 #     return corrected
-
 
 def correct_dark(
         imgs: np.ndarray,
         dark: np.ndarray,
         align_dark: bool = False,
         num_peaks: int = 20,
+        batch_size: int = None,  # <-- Added: Processes in parts if specified
         logger=None
 ) -> np.ndarray:
     """
     Subtract dark frame from images, with automatic coordinate-based
     hot pixel alignment to ensure a perfect match before subtraction.
+    Supports batch processing to limit memory overhead.
     """
     working_dark = dark.copy()
 
@@ -209,7 +250,6 @@ def correct_dark(
         dark_ref = dark if dark.ndim == 2 else np.mean(dark, axis=-1)
 
         # 2. Find coordinates of the brightest 'num_peaks' pixels in both frames
-        # Flat indices of top peaks
         img_flat_idx = np.argsort(img_ref.ravel())[-num_peaks:]
         dark_flat_idx = np.argsort(dark_ref.ravel())[-num_peaks:]
 
@@ -218,14 +258,12 @@ def correct_dark(
         dark_coords = np.array(np.unravel_index(dark_flat_idx, dark_ref.shape)).T
 
         # 3. Calculate the shift by finding the average matching displacement
-        # We calculate the median difference between the coordinates
-        # Sorting them by magnitude helps match the relative structural pairs
         img_coords_sorted = img_coords[np.lexsort((img_coords[:, 1], img_coords[:, 0]))]
         dark_coords_sorted = dark_coords[np.lexsort((dark_coords[:, 1], dark_coords[:, 0]))]
 
         shifts = img_coords_sorted - dark_coords_sorted
 
-        # Take the median shift vector to ignore outliers (like cosmic rays or stars)
+        # Take the median shift vector to ignore outliers
         computed_shift = np.median(shifts, axis=0)
 
         if logger is not None:
@@ -238,44 +276,133 @@ def correct_dark(
         else:
             working_dark = shift(dark, computed_shift, mode='nearest')
 
-    # 5. Subtract the aligned dark frame
+    # 5. Subtract the aligned dark frame safely with memory optimizations
     if logger is not None:
         logger.info("Subtracting aligned dark frame")
 
-    corrected = imgs - working_dark
-    corrected = np.clip(corrected, 0, None)
+    # --- MEMORY OPTIMIZATION LAYER ---
+    if batch_size is not None and imgs.ndim > 2:
+        num_imgs = imgs.shape[0]
+        # Pre-allocate output array to match original shape and data type
+        corrected = np.empty_like(imgs)
+
+        for i in range(0, num_imgs, batch_size):
+            end_idx = min(i + batch_size, num_imgs)
+
+            # Slice out a small chunk and subtract
+            chunk = imgs[i:end_idx] - working_dark
+            np.clip(chunk, 0, None, out=chunk)  # <-- In-place clip prevents RAM spike
+
+            # Save the processed chunk into our pre-allocated array
+            corrected[i:end_idx] = chunk
+    else:
+        # Fallback if no batch_size is given, using in-place clipping optimization
+        corrected = imgs - working_dark
+        np.clip(corrected, 0, None, out=corrected)
 
     if logger is not None:
         logger.info(f"Shape of dark corrected images array: {corrected.shape}")
 
     return corrected
 
+# def correct_flat(
+#         imgs: np.ndarray,
+#         flat: np.ndarray,
+#         align_flat: bool = False,
+#         max_allowable_shift: float = 50.0,  # Max pixels the flat is allowed to move
+#         logger=None
+# ) -> np.ndarray:
+#     """
+#     Divide images by flat field to correct for illumination variations,
+#     with an optional phase cross-correlation alignment toggle.
+#
+#     Parameters
+#     ----------
+#     imgs : np.ndarray
+#         Input image array of shape (N, H, W, C), (H, W, C), or (H, W).
+#     flat : np.ndarray
+#         Flat field to divide by. Match spatial dimensions (H, W) of imgs.
+#     align_flat : bool, default False
+#         If True, automatically registers and shifts the flat to match the
+#         spatial features of the input images using phase cross-correlation.
+#     max_allowable_shift : float, default 50.0
+#         Maximum pixels the flat is allowed to move during alignment.
+#     Divide images by flat field to correct for illumination variations safely,
+#     preventing divide-by-zero errors and protecting against wild alignment shifts.
+#     logger : optional
+#         Logger with .info() or .debug() methods.
+#     """
+#     working_flat = flat.copy()
+#
+#     if align_flat:
+#         if logger is not None:
+#             logger.info("Aligning flat field via phase cross-correlation...")
+#
+#         # Extract 2D layer for structural tracking
+#         img_ref = imgs[0] if imgs.ndim > 2 else imgs
+#         if img_ref.ndim == 3:
+#             img_ref = np.mean(img_ref, axis=-1)
+#
+#         flat_ref = flat if flat.ndim == 2 else np.mean(flat, axis=-1)
+#
+#         # 1. Compute structural offset
+#         shift_vector, error, diffphase = phase_cross_correlation(
+#             img_ref,
+#             flat_ref,
+#             upsample_factor=10
+#         )
+#
+#         # Safety Check: Did the algorithm miscalculate a massive shift?
+#         absolute_shift = np.linalg.norm(shift_vector)
+#         if absolute_shift > max_allowable_shift:
+#             if logger is not None:
+#                 logger.warning(
+#                     f"Ignored extreme shift vector {shift_vector} (Magnitude: {absolute_shift:.1f}px). "
+#                     f"Exceeds max limits of {max_allowable_shift}px. Using unshifted flat field instead."
+#                 )
+#             full_shift = np.zeros_like(shift_vector)
+#         else:
+#             if logger is not None:
+#                 logger.info(f"Calculated stable flat alignment shift (Y, X): {shift_vector}")
+#             full_shift = shift_vector
+#
+#         # 2. Shift the flat array over spatial boundaries
+#         # mode='nearest' copies edge pixels instead of placing 0.0 or mirroring artifacts
+#         if flat.ndim == 3:
+#             spatial_shift = (full_shift[0], full_shift[1], 0)
+#             working_flat = shift(flat, spatial_shift, mode='nearest')
+#         else:
+#             working_flat = shift(flat, full_shift, mode='nearest')
+#
+#     # 3. Absolute Zero-Division Prevention Guardrail
+#     # Force any values close to 0 to a tiny positive float value
+#     working_flat = np.where(working_flat <= 0, 1e-6, working_flat)
+#
+#     # 4. Perform division safely
+#     if logger is not None:
+#         logger.info("Dividing images with processed flat field")
+#
+#     corrected = imgs / working_flat
+#     corrected = np.clip(corrected, 0, None)
+#
+#     if logger is not None:
+#         logger.info(f"Shape of flat corrected images array: {corrected.shape}")
+#
+#     return corrected
+
+
 def correct_flat(
         imgs: np.ndarray,
         flat: np.ndarray,
         align_flat: bool = False,
-        max_allowable_shift: float = 50.0,  # Max pixels the flat is allowed to move
+        max_allowable_shift: float = 50.0,
+        batch_size: int = None,  # <-- Added: Processes in parts if specified
         logger=None
 ) -> np.ndarray:
     """
-    Divide images by flat field to correct for illumination variations,
-    with an optional phase cross-correlation alignment toggle.
-
-    Parameters
-    ----------
-    imgs : np.ndarray
-        Input image array of shape (N, H, W, C), (H, W, C), or (H, W).
-    flat : np.ndarray
-        Flat field to divide by. Match spatial dimensions (H, W) of imgs.
-    align_flat : bool, default False
-        If True, automatically registers and shifts the flat to match the
-        spatial features of the input images using phase cross-correlation.
-    max_allowable_shift : float, default 50.0
-        Maximum pixels the flat is allowed to move during alignment.
     Divide images by flat field to correct for illumination variations safely,
     preventing divide-by-zero errors and protecting against wild alignment shifts.
-    logger : optional
-        Logger with .info() or .debug() methods.
+    Supports batch processing to limit memory overhead.
     """
     working_flat = flat.copy()
 
@@ -283,7 +410,7 @@ def correct_flat(
         if logger is not None:
             logger.info("Aligning flat field via phase cross-correlation...")
 
-        # Extract 2D layer for structural tracking
+        # Extract 2D layer for structural tracking (only needs the first image!)
         img_ref = imgs[0] if imgs.ndim > 2 else imgs
         if img_ref.ndim == 3:
             img_ref = np.mean(img_ref, axis=-1)
@@ -312,7 +439,6 @@ def correct_flat(
             full_shift = shift_vector
 
         # 2. Shift the flat array over spatial boundaries
-        # mode='nearest' copies edge pixels instead of placing 0.0 or mirroring artifacts
         if flat.ndim == 3:
             spatial_shift = (full_shift[0], full_shift[1], 0)
             working_flat = shift(flat, spatial_shift, mode='nearest')
@@ -320,20 +446,37 @@ def correct_flat(
             working_flat = shift(flat, full_shift, mode='nearest')
 
     # 3. Absolute Zero-Division Prevention Guardrail
-    # Force any values close to 0 to a tiny positive float value
     working_flat = np.where(working_flat <= 0, 1e-6, working_flat)
 
     # 4. Perform division safely
     if logger is not None:
         logger.info("Dividing images with processed flat field")
 
-    corrected = imgs / working_flat
-    corrected = np.clip(corrected, 0, None)
+    # --- MEMORY OPTIMIZATION LAYER ---
+    if batch_size is not None and imgs.ndim > 2:
+        num_imgs = imgs.shape[0]
+        # Pre-allocate output array as float32 to hold division results safely
+        corrected = np.empty(imgs.shape, dtype=np.float32)
+
+        for i in range(0, num_imgs, batch_size):
+            end_idx = min(i + batch_size, num_imgs)
+
+            # Slice out a small chunk, divide it, and clip it IN-PLACE
+            chunk = imgs[i:end_idx] / working_flat
+            np.clip(chunk, 0, None, out=chunk)  # <-- Crucial: out=chunk avoids duplication
+
+            # Save the processed chunk into our pre-allocated array
+            corrected[i:end_idx] = chunk
+    else:
+        # Fallback if no batch_size is given, but still optimized to avoid duplicate clipping memory
+        corrected = imgs / working_flat
+        np.clip(corrected, 0, None, out=corrected)  # <-- In-place clip
 
     if logger is not None:
         logger.info(f"Shape of flat corrected images array: {corrected.shape}")
 
     return corrected
+
 
 
 def setup_logger():

@@ -143,11 +143,11 @@ data_cropped = crop_images(fits_data, xmin=c_x_min+m_x, xmax=c_x_max+m_x, ymin=c
 plot_image_grid(
     images=data_cropped, n_images=4
 )
-dark_cor = correct_dark(data_cropped, cropped_average_dark, align_dark=False, logger=logger)
+dark_cor = correct_dark(data_cropped, cropped_average_dark, batch_size=100, align_dark=False, logger=logger)
 plot_image_grid(
     images=dark_cor, n_images=4
 )
-flat_cor = correct_flat(data_cropped, cropped_average_flat, align_flat=True, logger=logger)
+flat_cor = correct_flat(data_cropped, cropped_average_flat, align_flat=True, batch_size=100, logger=logger)
 plot_image_grid(
     images= flat_cor, n_images=4
 )
@@ -243,7 +243,7 @@ plot_eruption_contours(
     mean_ref=means_ref,
     std_ref=stds_ref,
     num_plots=4,                            # Generates a clean 2x2 layout grid
-    max_sigma=5,                            # Maps contours from 1σ out to 5σ
+    min_sigma=5,                            # Maps contours from 5σ out to the frame's peak
     # save_name="eruption_contours_grid.png"  # Exports the map directly to /Plots
 )
 

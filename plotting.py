@@ -9,6 +9,8 @@ from processing import crop_images
 import os
 import textwrap
 from analysis import *
+import os
+
 
 
 def plot_single_series(
@@ -99,6 +101,7 @@ def plot_image_grid(
     cmap: str = "gray",
     figsize_scale: float = 5.5,
     save_name: str = None,
+    plot_image: bool = True,
     logger=None
 ) -> None:
     """
@@ -197,8 +200,10 @@ def plot_image_grid(
             else:
                 print(f"Plot successfully saved to: {save_path}")
     # -----------------------------------------------------------
-
-    plt.show()
+    if plot_image:
+        plt.show()
+    else:
+        plt.close()
 
 
 def plot_single_image(
@@ -435,6 +440,7 @@ def plot_dark_histograms(
     title_only_hot="Only Hotpoints",
     title_only_clean="Only Clean Points",
     save_name=None,
+    plot_histograms=True,
     **fig_kwargs
 ):
     """
@@ -457,7 +463,7 @@ def plot_dark_histograms(
     fig, axes = plt.subplots(2, 2, figsize=figsize)
 
     # Helper function to avoid repeating axis formatting
-    def format_ax(ax, title, xlabel="Value", ylabel="Frequency"):
+    def format_ax(ax, title, xlabel="Pixel Value / Intenzity", ylabel="Frequency"):
         ax.set_title(title, fontsize=14, fontweight='bold', pad=10)
         ax.set_xscale("log")
         ax.set_yscale("log")
@@ -510,8 +516,11 @@ def plot_dark_histograms(
                 print(f"Plot successfully saved to: {save_path}")
     # -----------------------------------------------------------
 
-    plt.tight_layout()
-    plt.show()
+    if plot_histograms:
+        plt.tight_layout()
+        plt.show()
+    else:
+        plt.close()
 
     if logger:
         logger.info("Histograms plotted successfully.")
@@ -523,6 +532,7 @@ def plot_hot_pixel_map(
     title_clipped="Clipped Master Dark (No Hot Points)",
     title_highlighted="Master Dark with Hot Pixels Highlighted",
     save_name=None,
+    plot_map: bool = True,
     **fig_kwargs
 ):
     """
@@ -582,9 +592,11 @@ def plot_hot_pixel_map(
             else:
                 print(f"Plot successfully saved to: {save_path}")
     # -----------------------------------------------------------
-
-    plt.tight_layout()
-    plt.show()
+    if plot_map:
+        plt.tight_layout()
+        plt.show()
+    else:
+        plt.close()
 
     if logger:
         logger.info("Spatial maps plotted successfully.")
@@ -746,8 +758,9 @@ def analyze_and_plot_rect(
         ymin: int,
         ymax: int,
         num_plots: int = None,
-        vmax: float = 50000,
+        vmax: float = 1000,
         save_name: str = None,
+        plot_graphs: bool = True,
         logger=None
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -836,7 +849,10 @@ def analyze_and_plot_rect(
             if logger:
                 logger.info(f"ROI verification grid saved to: {save_path}")
 
-        plt.show()
+        if plot_graphs:
+            plt.show()
+        else:
+            plt.close()
 
     return mean_values, std_values
 
@@ -845,7 +861,7 @@ def plot_stats(
         means: np.ndarray,
         stds: np.ndarray,
         time_series: np.ndarray = None,
-        plot_graphs: bool = True,
+        plot_stats: bool = True,
         title_mean: str = "Mean Pixel Value Profile",
         title_std: str = "Standard Deviation (Noise Profile)",
         x_label_custom: str = None,
@@ -871,7 +887,7 @@ def plot_stats(
         x_label = x_label_custom if x_label_custom else "Frame Index"
 
     # 2. Visual Layout Processing (Triggered if plotting OR saving)
-    if plot_graphs or save_name is not None:
+    if plot_stats or save_name is not None:
         figsize = fig_kwargs.get("figsize", (15, 5))
         fig, axes = plt.subplots(1, 2, figsize=figsize)
 
@@ -905,7 +921,7 @@ def plot_stats(
                 print(f"Statistics plots successfully saved to: {save_path}")
 
         # ---- Process Display Block ----
-        if plot_graphs:
+        if plot_stats:
             plt.show()
         else:
             plt.close(fig)  # Safely close figure object to free system memory if silent
@@ -1033,49 +1049,105 @@ def analyze_and_plot_circ(
     return mean_values, std_values
 
 
+
 def plot_eruption_contours(
-        imgs: np.ndarray,
-        xc: float,
-        yc: float,
-        r: float,
-        mean_ref: np.ndarray,
-        std_ref: np.ndarray,
-        num_plots: int = 4,
-        max_sigma: int = 5,
-        vmax: float = None,
-        plot_graphs: bool = True,
-        save_name: str = None,
-        logger=None
+    imgs: np.ndarray,
+    xc: float,
+    yc: float,
+    r: float,
+    mean_ref: np.ndarray,
+    std_ref: np.ndarray,
+    num_plots: int = 4,
+    num_contours: int = 5,
+    min_sigma: float = 5.0,  # Added customizable minimum sigma parameter
+    vmax: float = None,
+    plot_graphs: bool = True,
+    save_name: str = None,
+    logger=None
 ):
     """
-    Plots dynamic sigma-level contours strictly inside a circular mask area
-    for uniformly sampled images across an eruption sequence.
+    Plots dynamic threshold contours over an eruption image stack within a circular Region of Interest (ROI).
+
+    This function isolates highly energetic eruptive features by filtering out quiet background
+    noise using a customizable sigma-threshold floor. It samples frames uniformly across the input
+    dataset's timeline, calculates the unique dynamic intensity range of the eruption for each
+    sampled frame, and spreads a specified number of contours evenly from the baseline floor up to
+    just below the frame's peak intensity. High-intensity pixels exceeding the upper threshold
+    are cleanly captured and enclosed inside the highest contour loop.
 
     Parameters:
     -----------
     imgs : np.ndarray
-        The eruption image stack of shape (N, H, W).
-    xc, yc, r : float
-        Circle parameters defining the active eruption ROI area.
+        The input image or image stack data. Supports a 2D array of shape (H, W) for a single
+        frame, or a 3D array of shape (N, H, W) representing a time-series stack of N frames.
+    xc : float
+        The X-coordinate of the center point for the circular tracking mask.
+    yc : float
+        The Y-coordinate of the center point for the circular tracking mask.
+    r : float
+        The radius of the circular tracking mask defining the active boundary perimeter.
     mean_ref : np.ndarray
-        Array of baseline reference mean values (from the rectangular background).
+        An array containing the baseline reference mean intensity values calculated from a
+        background control region. Must contain a index value for every frame in the stack.
     std_ref : np.ndarray
-        Array of baseline reference standard deviations (from the rectangular background).
+        An array containing the baseline reference standard deviation values calculated from
+        a background control region. Must contain an index value for every frame in the stack.
     num_plots : int, default 4
-        Number of images to uniformly sample across the stack sequence.
-    max_sigma : int, default 5
-        The highest σ multiplier threshold to calculate contours up to (e.g., 1σ to 5σ).
+        The number of subplots to generate in the final figure grid by uniformly sampling
+        frames across the entire sequence timeline.
+    num_contours : int, default 5
+        The number of contour intervals to calculate and plot above the minimum sigma floor.
+    min_sigma : float, default 5.0
+        The minimum sigma multiplier used to establish the baseline threshold floor:
+        Floor = Mean + (min_sigma * Standard Deviation)
+        Only pixel signals exceeding this value are treated as part of the eruption.
     vmax : float, optional
-        Maximum display cap value for the background imagery.
+        Maximum display intensity cutoff passed to the underlying image map rendering engine.
+        If None, the grayscale map normalizes to the image's natural limits.
     plot_graphs : bool, default True
-        If False, suppresses screen window generation and runs silently.
+        If True, flushes the canvas immediately to open the interactive visualization window.
+        If False, closes the figure canvas silently to protect background system memory.
     save_name : str, optional
-        Filename to export the generated grid image to the 'Plots' directory.
+        The filename string (e.g., 'eruption_contours.png') to export the final figure grid.
+        Files are compiled and saved automatically inside a local directory named 'Plots/'.
+    logger : logging.Logger, optional
+        An optional pipeline tracking logger instance used to transmit processing state updates
+        and export milestones to standard output.
+
+    Returns:
+    --------
+    None
+        The function directly renders graphics to the selected matplotlib backend context or
+        exports visual image frames to your local file system array.
+
+    Notes:
+    ------
+    * **Dynamic Spacing Engine:** Rather than utilizing fixed, static thresholds across an entire
+      run, contour intervals are computed uniquely per frame using linear spacing from the custom
+      sigma floor up to 98% of that specific frame's peak masked value.
+    * **Peak Enclosure Guard:** Capping the upper contour bound at 98% of the absolute local maximum
+      pixel intensity ensures that apex emission points form fully closed boundary loop vectors on
+      screen instead of collapsing or terminating exactly on single pixel coordinates.
+    * **Mask Handling:** An explicit spatial stencil is configured once using open coordinate grids.
+      Calculations for the active contour levels are executed strictly inside this circular geometry,
+      leaving raw outside background arrays unpolluted by contour calculations.
+
+    Examples:
+    ---------
+    >>> # Execute tracking with an 8-sigma floor across 6 sampled timeline frames
+    >>> plot_eruption_contours(
+    ...     imgs=solar_disk_stack,
+    ...     xc=412.5, yc=280.0, r=45.0,
+    ...     mean_ref=bg_means,
+    ...     std_ref=bg_stds,
+    ...     num_plots=6,
+    ...     min_sigma=8.0,
+    ...     save_name="flare_core_evolution.pdf"
+    ... )
     """
     if logger:
-        logger.info("Initializing dynamic visual contour matrix...")
+        logger.info(f"Generating localized eruption contour maps (Floor = Mean + {min_sigma}σ)...")
 
-    # Normalize dimensions for a single frame vs a stack
     if imgs.ndim == 2:
         num_frames = 1
         H, W = imgs.shape
@@ -1084,11 +1156,11 @@ def plot_eruption_contours(
         num_frames, H, W = imgs.shape[:3]
         working_stack = imgs
 
-    # Create the coordinate circle mask stencil once
+    # 1. Create the spatial circle mask
     y_indices, x_indices = np.ogrid[:H, :W]
     circle_mask = (x_indices - xc) ** 2 + (y_indices - yc) ** 2 <= r ** 2
 
-    # Select uniformly spaced image indices across the frame sequence
+    # 2. Sample frame indices uniformly across the timeline
     plot_indices = np.linspace(0, num_frames - 1, num_plots, dtype=int)
     plot_indices = np.unique(plot_indices)
     actual_plot_count = len(plot_indices)
@@ -1096,80 +1168,94 @@ def plot_eruption_contours(
     if actual_plot_count == 0:
         return
 
-    # Build dynamic layout grid structures
-    cols = 2 if actual_plot_count >= 2 else 1
-    rows = int(np.ceil(actual_plot_count / cols))
+    # 3. Setup Layout Grid (Optimized for a square aspect ratio)
+    if actual_plot_count == 1:
+        cols = 1
+        rows = 1
+    else:
+        # Calculate the ideal square matrix edge size
+        cols = int(np.ceil(np.sqrt(actual_plot_count)))
+        rows = int(np.ceil(actual_plot_count / cols))
 
-    fig, axes = plt.subplots(rows, cols, figsize=(7 * cols, 6 * rows))
-    ax_flat = axes.ravel() if actual_plot_count > 1 else [axes]
+    # Keep subplot dimensions uniform (e.g., 6x5.5 per plot) so the figure stays square
+    fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 5.5 * rows))
 
-    # Use a smooth continuous sequential map for dynamic filled contour layers
+    # Ensure flat access arrays even for a single-plot configuration
+    if actual_plot_count == 1:
+        ax_flat = [axes]
+    else:
+        ax_flat = axes.ravel()
+
     contour_cmap = plt.cm.get_cmap("YlOrRd")
 
+    # 4. Loop Through Sampled Frames
     for idx, img_idx in enumerate(plot_indices):
         ax = ax_flat[idx]
         img = working_stack[img_idx]
 
-        # Pull background references corresponding to this exact frame
         m_val = mean_ref[img_idx]
         s_val = std_ref[img_idx]
 
-        # Use masked array to isolate data inside the circle for contour processing
+        # Isolate the eruptive region data
         masked_img = np.ma.masked_array(img, mask=~circle_mask)
-        img_min, img_max = masked_img.min(), masked_img.max()
+        img_max = masked_img.max()
 
-        # Generate candidate thresholds (e.g., Mean + 1σ, Mean + 2σ...)
-        candidate_levels = [m_val + k * s_val for k in range(1, max_sigma + 1)]
+        # Define the dynamic bottom boundary based on the chosen min_sigma
+        eruption_floor = m_val + min_sigma * s_val
 
-        # SMART SELECTION: Filter out levels that do not exist within this frame's values
-        valid_levels = [lv for lv in candidate_levels if img_min < lv < img_max]
+        # ---- DYNAMIC CONTOUR SPACING ENGINE ----
+        if img_max > eruption_floor:
+            # Space contours evenly from the floor up to 98% of the peak value
+            valid_levels = np.linspace(eruption_floor, img_max * 0.98, num_contours)
+            valid_levels = np.unique(valid_levels)
+        else:
+            valid_levels = []
 
-        # 1. Draw background full image layer
+        # Draw baseline grayscale framework
         im = ax.imshow(img, cmap="gray_r", origin="lower", vmax=vmax)
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Intensity (ADU)")
 
-        # 2. Render Contour overlays if valid levels survived filtering
-        if valid_levels:
-            # Filled contours with automatic gradient mapping based on active levels
-            cf = ax.contourf(masked_img, levels=valid_levels, cmap=contour_cmap, alpha=0.35)
-
-            # Sharp outer boundary contour lines
+        # Render Convoluted Heat Zones if the eruption breaches the floor
+        if len(valid_levels) > 1:
+            cf = ax.contourf(masked_img, levels=valid_levels, cmap=contour_cmap, alpha=0.4)
             cs = ax.contour(masked_img, levels=valid_levels, colors="red", linewidths=1.0)
+            ax.clabel(cs, inline=True, fontsize=8, fmt="%.0f", colors="black")
+            active_contours_count = len(valid_levels)
+        else:
+            active_contours_count = 0
 
-            # Structural labels on contour lines
-            ax.clabel(cs, inline=True, fontsize=9, fmt="%.0f", colors="black")
-
-        # 3. Add the yellow visual reference target boundary ring
-        visual_circle = Circle((xc, yc), r, color="yellow", fill=False, linewidth=2, linestyle="--")
+        # Overlay yellow verification ring perimeter
+        visual_circle = Circle((xc, yc), r, color="yellow", fill=False, linewidth=1.5, linestyle="--")
         ax.add_patch(visual_circle)
 
-        # Labels & Details
-        ax.set_title(f"Frame {img_idx} ({len(valid_levels)} Active σ-Contours)", fontsize=11, fontweight='bold')
-        ax.set_xlabel("X coordinate")
-        ax.set_ylabel("Y coordinate")
+        # Context Formatting with dynamic title
+        ax.set_title(f"Frame {img_idx} ({active_contours_count} Levels Above {min_sigma}σ)", fontsize=11, fontweight='bold')
 
-    # Clean out empty grid blocks
+    # Prune empty window spots
     for extra_ax in ax_flat[actual_plot_count:]:
         fig.delaxes(extra_ax)
 
     plt.tight_layout()
 
-    # ---- Process Saving Block ----
+    # ---- Save Module ----
     if save_name is not None:
         output_dir = "Plots"
         os.makedirs(output_dir, exist_ok=True)
         save_path = os.path.join(output_dir, save_name)
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
         if logger:
-            logger.info(f"Contour plot successfully saved to: {save_path}")
-        else:
-            print(f"Contour plot successfully saved to: {save_path}")
+            logger.info(f"Contours saved to: {save_path}")
 
-    # ---- Process Display Block ----
     if plot_graphs:
         plt.show()
     else:
         plt.close(fig)
+
+
+
+
+
+
 
 
 def plot_eruption_histogram(
