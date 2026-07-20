@@ -6,23 +6,15 @@ from math import ceil, sqrt
 from typing import Optional, Sequence
 from astropy.io import fits
 from processing import crop_images
-import os
 import textwrap
 from analysis import *
 from processing import *
 from data_io import *
-import os
-
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-
-
-import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import matplotlib.dates as mdates
 import numpy as np
 import os
+
 
 def plot_single_series(
         data: np.ndarray,
@@ -204,25 +196,26 @@ def plot_image_grid(
         fig.suptitle(suptitle, fontsize=18, y=1.02)
 
     # ---- Save Figure Setup (Paste right before plt.show()) ----
-    # Expects `save_name` (str or None) passed into the function's arguments
-    if 'save_name' in locals() or 'save_name' in globals():
+        # ---- Save Figure Setup ----
         if save_name is not None:
             import os
-            output_dir = "Plots"
 
-            # Create the directory safely if it doesn't exist
-            os.makedirs(output_dir, exist_ok=True)
+            # Standardize path
+            save_path = save_name
 
-            # Combine directory and filename
-            save_path = os.path.join(output_dir, save_name)
+            # Extract parent directory and create all necessary subfolder(s)
+            parent_dir = os.path.dirname(save_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
 
-            # Save the figure (bbox_inches='tight' prevents labels from cutting off)
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+            # Save the figure
+            plt.savefig(save_path, bbox_inches="tight", dpi=300)
 
-            if 'logger' in locals() and logger is not None:
+            if "logger" in locals() and logger is not None:
                 logger.info(f"Plot successfully saved to: {save_path}")
             else:
                 print(f"Plot successfully saved to: {save_path}")
+        # ---------------------------
     # -----------------------------------------------------------
     if plot_image:
         plt.show()
@@ -282,9 +275,14 @@ def plot_single_image(
 
         # ---- Process Saving Block ----
         if save_name is not None:
-            output_dir = "Plots"
-            os.makedirs(output_dir, exist_ok=True)
-            save_path = os.path.join(output_dir, save_name)
+            import os
+
+            save_path = save_name
+
+            # Safely create parent directories if they don't exist
+            parent_dir = os.path.dirname(save_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
 
             plt.savefig(save_path, bbox_inches='tight', dpi=300)
 
@@ -298,7 +296,6 @@ def plot_single_image(
             plt.show()
         else:
             plt.close(fig)  # Prevent background engine memory leaks
-
 
 def save_fits_image(img: np.ndarray,
                     filename: str,
@@ -353,6 +350,7 @@ def plot_image_with_crop(
         ymax,
         title_full="Full Image (with Crop Region)",
         title_crop="Cropped Region Zoom",
+        plot_graph: bool = True,
         save_name: str = None,
         logger=None,
         **imshow_kwargs
@@ -371,6 +369,10 @@ def plot_image_with_crop(
         Title for the left subplot.
     title_crop : str
         Title for the right subplot.
+    plot_graph : bool, optional
+        Whether to display the interactive plot window (default: True).
+    save_name : str, optional
+        Exact save path or filename for the plot image.
     logger : logging.Logger, optional
         Logger instance to output execution traces.
     **imshow_kwargs : dict
@@ -430,31 +432,31 @@ def plot_image_with_crop(
     ax2.set_title(title_crop, fontsize=14, fontweight='bold', pad=10)
     ax2.grid(False)
 
-    # ---- Save Figure Setup (Paste right before plt.show()) ----
-    # Expects `save_name` (str or None) passed into the function's arguments
-    if 'save_name' in locals() or 'save_name' in globals():
-        if save_name is not None:
-            import os
-            output_dir = "Plots"
-
-            # Create the directory safely if it doesn't exist
-            os.makedirs(output_dir, exist_ok=True)
-
-            # Combine directory and filename
-            save_path = os.path.join(output_dir, save_name)
-
-            # Save the figure (bbox_inches='tight' prevents labels from cutting off)
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
-
-            if 'logger' in locals() and logger is not None:
-                logger.info(f"Plot successfully saved to: {save_path}")
-            else:
-                print(f"Plot successfully saved to: {save_path}")
-    # -----------------------------------------------------------
-
-    # Clean up layout
     plt.tight_layout()
-    plt.show()
+
+    # ---- Save Figure Setup ----
+    if save_name is not None:
+        import os
+
+        save_path = save_name
+
+        # Safely create parent directories if they don't exist
+        parent_dir = os.path.dirname(save_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+
+        if logger is not None:
+            logger.info(f"Plot successfully saved to: {save_path}")
+        else:
+            print(f"Plot successfully saved to: {save_path}")
+
+    # ---- Process Display Block ----
+    if plot_graph:
+        plt.show()
+    else:
+        plt.close(fig)  # Prevent background memory leaks
 
 
 def plot_dark_histograms(
@@ -629,6 +631,7 @@ def plot_hot_pixel_map(
 
 
 import textwrap
+
 
 def print_dark_analysis_table(
         stats: dict,
@@ -980,6 +983,7 @@ def plot_stats(
             plt.show()
         else:
             plt.close(fig)  # Safely close figure object to free system memory if silent
+
 
 def analyze_and_plot_circ(
         imgs: np.ndarray,
@@ -1446,11 +1450,6 @@ def plot_average_intensity(
     return average_int
 
 
-import datetime
-from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
-import numpy as np
-
 
 def load_WL_spectrum():
     wlc = np.load("./FICUS/useful_files/WL_range_C.npy")
@@ -1550,25 +1549,22 @@ def plot_spectrum_at_time(mC, mD, target_time, save_filename: str = None, show_p
         plt.close(fig)  # Free figure memory if not showing
 
 
-import os
-import numpy as np
-import matplotlib.pyplot as plt
 
-
-def plot_flare_summary(goes_flare, gradient, timerange, h_alpha_data, time_array, intensity, save_name=None,
-                       plot_graph=True):
+def plot_flare_summary(goes_flare, gradient, time_series, h_alpha_data, time_array, intensity,
+                       save_name=None, plot_graph=True, num_ticks=None):
     """
     Plots a 4-panel synchronized timeline matching your working setup exactly.
     Accepts full file paths for save_name to match the other save parameters seamlessly.
+    Includes an optional 'num_ticks' parameter to control x-axis tick density.
     """
     # Explicitly convert GOES time axis (Astropy Time) to standard plottable datetimes
     goes_time_plot = goes_flare.time.datetime if hasattr(goes_flare.time, "datetime") else goes_flare.time
 
     # Safe-unpack for Astropy Time objects/arrays passed into timerange and time_array
-    t_range_plot = timerange.datetime if hasattr(timerange, "datetime") else timerange
-    if isinstance(timerange, np.ndarray) and timerange.dtype == object and len(timerange) > 0:
-        if hasattr(timerange[0], "datetime"):
-            t_range_plot = [t.datetime for t in timerange]
+    t_range_plot = time_series.datetime if hasattr(time_series, "datetime") else time_series
+    if isinstance(time_series, np.ndarray) and time_series.dtype == object and len(time_series) > 0:
+        if hasattr(time_series[0], "datetime"):
+            t_range_plot = [t.datetime for t in time_series]
 
     t_array_plot = time_array.datetime if hasattr(time_array, "datetime") else time_array
     if isinstance(time_array, np.ndarray) and time_array.dtype == object and len(time_array) > 0:
@@ -1596,6 +1592,10 @@ def plot_flare_summary(goes_flare, gradient, timerange, h_alpha_data, time_array
     ax4.set_ylabel("Intensity")
     ax4.set_xlabel("Time")
 
+    # Dynamic x-axis tick adjustment across the shared subplots
+    if num_ticks is not None:
+        ax4.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=num_ticks))
+
     # Layout cleanup
     fig.autofmt_xdate()
     plt.tight_layout()
@@ -1611,3 +1611,83 @@ def plot_flare_summary(goes_flare, gradient, timerange, h_alpha_data, time_array
         plt.show()
     else:
         plt.close(fig)
+
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from matplotlib.patches import Circle
+
+def animate_eruption_region(
+        imgs: np.ndarray,
+        xc: float,
+        yc: float,
+        r: float,
+        time_series=None,
+        fps: int = 10,
+        vmax: float = 2.0,
+        save_name: str = "eruption_animation.mp4",
+        logger=None
+):
+    """
+    Generates an animated video/GIF from the cropped eruption stack.
+    Overlays the circular analysis region and dynamic timestamp per frame.
+    """
+    if logger:
+        logger.info(f"🎥 Generating eruption animation for {len(imgs)} frames...")
+    else:
+        print(f"🎥 Generating eruption animation for {len(imgs)} frames...")
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Initial frame layout setup
+    im = ax.imshow(imgs[0], cmap='inferno', origin='lower', vmin=0, vmax=vmax)
+    circle = Circle((xc, yc), r, color='cyan', fill=False, linewidth=1.8, linestyle='--')
+    ax.add_patch(circle)
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("Normalized Intensity", fontsize=10)
+    ax.set_xlabel("X (px)")
+    ax.set_ylabel("Y (px)")
+
+    # Frame update loop
+    def update(frame_idx):
+        im.set_data(imgs[frame_idx])
+        if time_series is not None and frame_idx < len(time_series):
+            # Formats datetime object cleanly
+            t_obj = time_series[frame_idx]
+            t_str = t_obj.strftime("%Y-%m-%d %H:%M:%S") if hasattr(t_obj, "strftime") else str(t_obj)
+            ax.set_title(f"Time: {t_str} (Frame {frame_idx + 1}/{len(imgs)})", fontsize=10, fontweight='bold')
+        else:
+            ax.set_title(f"Frame {frame_idx + 1}/{len(imgs)}", fontsize=10, fontweight='bold')
+        return [im]
+
+    anim = animation.FuncAnimation(fig, update, frames=len(imgs), interval=1000 / fps, blit=False)
+
+    # Path resolution
+    dir_name = os.path.dirname(save_name)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+
+    # Save animation (Attempts MP4 with ffmpeg, falls back to Pillow GIF)
+    if save_name.endswith('.gif'):
+        anim.save(save_name, writer='pillow', fps=fps)
+    else:
+        try:
+            anim.save(save_name, writer='ffmpeg', fps=fps, extra_args=['-vcodec', 'libx264'])
+        except Exception as e:
+            gif_path = os.path.splitext(save_name)[0] + ".gif"
+            msg = f"⚠️ FFmpeg writer failed/unavailable ({e}). Falling back to GIF format: {gif_path}"
+            if logger:
+                logger.warning(msg)
+            else:
+                print(msg)
+            anim.save(gif_path, writer='pillow', fps=fps)
+            save_name = gif_path
+
+    plt.close(fig)
+
+    if logger:
+        logger.info(f"🎬 Movie successfully saved to: {save_name}")
+    else:
+        print(f"🎬 Movie successfully saved to: {save_name}")

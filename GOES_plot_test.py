@@ -4,10 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from astropy.time import Time
 
-from data_io import *
-from processing import *
-from analysis import *
-from plotting import *
+from FICUS_LIB.data_io import *
+from FICUS_LIB.processing import *
+from FICUS_LIB.analysis import *
+from FICUS_LIB.plotting import *
 
 # =====================================================================
 # GLOBAL PIPELINE RUNNER
@@ -20,7 +20,7 @@ if __name__ == "__main__":
     # --- Directory Paths ---
     DIR_SLITJAW       = "./2024-07-29/sun_area/SlitJaw"
     DIR_HDF_DATA      = "./2024-07-29/sun_area"
-    DIR_PLOTS         = "Plots/2024-07-29"
+    DIR_PLOTS         = "Plots/2024-07-29/test2"
 
     # --- GOES Satellite Parameters ---
     GOES_SATELLITE    = 16
@@ -150,7 +150,7 @@ if __name__ == "__main__":
     # Render background track stability check
     plot_single_series(
         data=reference_values,
-        time_series=timestamps.datetime,
+        time_series=timestamps.to_datetime(),
         num_ticks=15,  # Sets ~7 ticks on the x-axis
         title="REFERENCE AREA INTENSITY",
         xlabel="Time",

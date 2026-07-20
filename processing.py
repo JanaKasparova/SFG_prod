@@ -501,7 +501,6 @@ def setup_logger():
     logger.propagate = False
     return logger
 
-
 def select_roi_with_sliders(imgs: np.ndarray, vmax: float = 50000, cmap: str = "gray"):
     """
     Launches an interactive UI window with sliders to dynamically change
@@ -607,6 +606,10 @@ def select_roi_with_sliders(imgs: np.ndarray, vmax: float = 50000, cmap: str = "
 
     # Keep references alive inside system memory tracking registries so widgets don't freeze up
     return [slider_xmin, slider_xmax, slider_ymin, slider_ymax, export_btn]
+
+
+
+
 #
 #
 # from datetime import datetime, timedelta

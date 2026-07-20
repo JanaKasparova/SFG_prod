@@ -173,7 +173,6 @@ def load_hdf_light(path: str, idx: int, logger=None) -> tuple[np.ndarray, np.nda
     return mC, mD
 
 
-
 def load_flats(flat_dir, logger=None):
     "dummy function"
     print(f"  Reading flats from {flat_dir} DUMMY")
@@ -537,3 +536,241 @@ def make_metadata_dict(path_to_hdf: str) -> list:
     return metadata_list
 
 
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from matplotlib.widgets import Slider, Button
+
+
+def select_rectangle_roi(
+        imgs: np.ndarray,
+        title: str = "Rectangle ROI Selector",
+        vmax_default: float = 2.0,
+        cmap: str = "inferno",
+        var_prefix: str = "CALIB"
+) -> tuple[int, int, int, int]:
+    """
+    Launches an interactive GUI with sliders to tune xmin, xmax, ymin, ymax,
+    frame scrubbing, and image brightness (vmax).
+
+    Returns (xmin, xmax, ymin, ymax) as a 4-element tuple upon window closure.
+    """
+    # 1. Normalize array geometry (handle 2D or 3D inputs)
+    if imgs.ndim == 2:
+        stack = imgs[np.newaxis, ...]
+    elif imgs.ndim == 3:
+        stack = imgs
+    else:
+        raise ValueError(f"Invalid image dimensions: {imgs.shape}")
+
+    n_frames, h, w = stack.shape
+
+    # Initial crop values (Centered 25% to 75%)
+    init_xmin, init_xmax = int(w * 0.25), int(w * 0.75)
+    init_ymin, init_ymax = int(h * 0.25), int(h * 0.75)
+    init_frame = 0
+
+    # 2. Setup Figure Layout
+    fig, ax = plt.subplots(figsize=(10, 8))
+    plt.subplots_adjust(bottom=0.38)  # Leave room for control panel below
+
+    im = ax.imshow(stack[init_frame], cmap=cmap, origin="lower", vmin=0, vmax=vmax_default)
+    ax.set_title(f"{title} - Frame {init_frame + 1}/{n_frames}", fontsize=11, fontweight="bold")
+    ax.set_xlabel("X (pixels)")
+    ax.set_ylabel("Y (pixels)")
+
+    # Overlay Rectangle Patch
+    rect_patch = Rectangle(
+        xy=(init_xmin, init_ymin),
+        width=(init_xmax - init_xmin),
+        height=(init_ymax - init_ymin),
+        color="cyan",
+        fill=False,
+        linewidth=2.0,
+        linestyle="--"
+    )
+    ax.add_patch(rect_patch)
+
+    # 3. Widget Axes Placement [left, bottom, width, height]
+    ax_frame = plt.axes([0.15, 0.30, 0.70, 0.025])
+    ax_vmax = plt.axes([0.15, 0.26, 0.70, 0.025])
+    ax_xmin = plt.axes([0.15, 0.20, 0.70, 0.025])
+    ax_xmax = plt.axes([0.15, 0.16, 0.70, 0.025])
+    ax_ymin = plt.axes([0.15, 0.12, 0.70, 0.025])
+    ax_ymax = plt.axes([0.15, 0.08, 0.70, 0.025])
+
+    # 4. Sliders Creation
+    slider_frame = Slider(ax_frame, "Frame", 0, n_frames - 1, valinit=init_frame, valstep=1)
+    slider_vmax = Slider(ax_vmax, "VMax", 0.1, np.nanmax(stack), valinit=vmax_default)
+    slider_xmin = Slider(ax_xmin, "X Min", 0, w - 1, valinit=init_xmin, valstep=1)
+    slider_xmax = Slider(ax_xmax, "X Max", 1, w, valinit=init_xmax, valstep=1)
+    slider_ymin = Slider(ax_ymin, "Y Min", 0, h - 1, valinit=init_ymin, valstep=1)
+    slider_ymax = Slider(ax_ymax, "Y Max", 1, h, valinit=init_ymax, valstep=1)
+
+    # Update Callback
+    def update(val):
+        x_min = int(slider_xmin.val)
+        x_max = int(slider_xmax.val)
+        y_min = int(slider_ymin.val)
+        y_max = int(slider_ymax.val)
+
+        # Enforce Logical Boundaries
+        if x_min >= x_max:
+            x_max = x_min + 1
+        if y_min >= y_max:
+            y_max = y_min + 1
+
+        # Live Image Update
+        f_idx = int(slider_frame.val)
+        v_val = slider_vmax.val
+        im.set_data(stack[f_idx])
+        im.set_clim(0, v_val)
+        ax.set_title(f"{title} - Frame {f_idx + 1}/{n_frames}", fontsize=11, fontweight="bold")
+
+        # Live Bounding Box Update
+        rect_patch.set_xy((x_min, y_min))
+        rect_patch.set_width(x_max - x_min)
+        rect_patch.set_height(y_max - y_min)
+
+        fig.canvas.draw_idle()
+
+    for s in [slider_frame, slider_vmax, slider_xmin, slider_xmax, slider_ymin, slider_ymax]:
+        s.on_changed(update)
+
+    # 5. Export Button
+    ax_btn = plt.axes([0.35, 0.02, 0.30, 0.04])
+    btn_export = Button(ax_btn, "📋 Export Config Code", color="#2ecc71", hovercolor="#27ae60")
+
+    def export_code(event):
+        x_min = int(slider_xmin.val)
+        x_max = int(slider_xmax.val)
+        y_min = int(slider_ymin.val)
+        y_max = int(slider_ymax.val)
+
+        print("\n" + "=" * 55)
+        print(f"    COPY-PASTE CONFIGURATION ({var_prefix})")
+        print("=" * 55)
+        print(f"{var_prefix}_XMIN, {var_prefix}_XMAX = {x_min}, {x_max}")
+        print(f"{var_prefix}_YMIN, {var_prefix}_YMAX = {y_min}, {y_max}")
+        print("=" * 55 + "\n")
+
+    btn_export.on_clicked(export_code)
+
+    # Store UI elements on the figure object to avoid garbage collection
+    fig._ui_widgets = [slider_frame, slider_vmax, slider_xmin, slider_xmax, slider_ymin, slider_ymax, btn_export]
+
+    # Execution blocks here until user closes the window
+    plt.show()
+
+    # Read final values from sliders after closure
+    final_xmin = int(slider_xmin.val)
+    final_xmax = int(slider_xmax.val)
+    final_ymin = int(slider_ymin.val)
+    final_ymax = int(slider_ymax.val)
+
+    # Boundary safety checks
+    if final_xmin >= final_xmax:
+        final_xmax = final_xmin + 1
+    if final_ymin >= final_ymax:
+        final_ymax = final_ymin + 1
+
+    return final_xmin, final_xmax, final_ymin, final_ymax
+
+
+def select_circle_roi(
+        imgs: np.ndarray,
+        title: str = "Circular Eruption Mask Selector",
+        vmax_default: float = 2.0,
+        cmap: str = "inferno"
+) -> tuple[tuple[int, int], int]:
+    """
+    Launches an interactive GUI with sliders to set Center X (xc), Center Y (yc),
+    and Radius (r) for circular analysis masks.
+
+    Returns ((center_x, center_y), radius) upon window closure.
+    """
+    if imgs.ndim == 2:
+        stack = imgs[np.newaxis, ...]
+    elif imgs.ndim == 3:
+        stack = imgs
+    else:
+        raise ValueError(f"Invalid image dimensions: {imgs.shape}")
+
+    n_frames, h, w = stack.shape
+
+    init_xc, init_yc = int(w / 2), int(h / 2)
+    init_r = int(min(w, h) * 0.3)
+    init_frame = 0
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    plt.subplots_adjust(bottom=0.34)
+
+    im = ax.imshow(stack[init_frame], cmap=cmap, origin="lower", vmin=0, vmax=vmax_default)
+    ax.set_title(f"{title} - Frame {init_frame + 1}/{n_frames}", fontsize=11, fontweight="bold")
+    ax.set_xlabel("X (pixels)")
+    ax.set_ylabel("Y (pixels)")
+
+    # Overlay Circle Patch
+    circle_patch = Circle((init_xc, init_yc), init_r, color="cyan", fill=False, linewidth=2.0, linestyle="--")
+    ax.add_patch(circle_patch)
+
+    # Controls Geometry
+    ax_frame = plt.axes([0.15, 0.25, 0.70, 0.025])
+    ax_vmax = plt.axes([0.15, 0.21, 0.70, 0.025])
+    ax_xc = plt.axes([0.15, 0.16, 0.70, 0.025])
+    ax_yc = plt.axes([0.15, 0.12, 0.70, 0.025])
+    ax_r = plt.axes([0.15, 0.08, 0.70, 0.025])
+
+    slider_frame = Slider(ax_frame, "Frame", 0, n_frames - 1, valinit=init_frame, valstep=1)
+    slider_vmax = Slider(ax_vmax, "VMax", 0.1, np.nanmax(stack), valinit=vmax_default)
+    slider_xc = Slider(ax_xc, "Center X", 0, w, valinit=init_xc, valstep=1)
+    slider_yc = Slider(ax_yc, "Center Y", 0, h, valinit=init_yc, valstep=1)
+    slider_r = Slider(ax_r, "Radius R", 1, min(w, h), valinit=init_r, valstep=1)
+
+    def update(val):
+        f_idx = int(slider_frame.val)
+        v_val = slider_vmax.val
+        xc = int(slider_xc.val)
+        yc = int(slider_yc.val)
+        r = int(slider_r.val)
+
+        im.set_data(stack[f_idx])
+        im.set_clim(0, v_val)
+        ax.set_title(f"{title} - Frame {f_idx + 1}/{n_frames}", fontsize=11, fontweight="bold")
+
+        circle_patch.set_center((xc, yc))
+        circle_patch.set_radius(r)
+
+        fig.canvas.draw_idle()
+
+    for s in [slider_frame, slider_vmax, slider_xc, slider_yc, slider_r]:
+        s.on_changed(update)
+
+    # Export Button
+    ax_btn = plt.axes([0.35, 0.02, 0.30, 0.04])
+    btn_export = Button(ax_btn, "📋 Export Config Code", color="#2ecc71", hovercolor="#27ae60")
+
+    def export_code(event):
+        xc = int(slider_xc.val)
+        yc = int(slider_yc.val)
+        r = int(slider_r.val)
+
+        print("\n" + "=" * 55)
+        print("   COPY-PASTE CONFIGURATION (ERUPTION MASK)")
+        print("=" * 55)
+        print(f"ERUPTION_CENTER = ({xc}, {yc})  # (xC, yC)")
+        print(f"ERUPTION_RADIUS = {r}  # R")
+        print("=" * 55 + "\n")
+
+    btn_export.on_clicked(export_code)
+
+    fig._ui_widgets = [slider_frame, slider_vmax, slider_xc, slider_yc, slider_r, btn_export]
+
+    plt.show()
+
+    # Extract final values after window closure
+    final_xc = int(slider_xc.val)
+    final_yc = int(slider_yc.val)
+    final_r = int(slider_r.val)
+
+    return (final_xc, final_yc), final_r
