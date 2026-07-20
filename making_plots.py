@@ -158,6 +158,25 @@ if __name__ == "__main__":
         logger=logger
     )
 
+    # extracting time from fits names
+
+    # Compile the array from your directory
+    astropy_time_array = compile_directory_timestamps(fits_data_folder)
+
+    # Verify the structure
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print(f"Array Type:  {type(astropy_time_array)}")
+    print(f"Array Shape: {astropy_time_array.shape}")
+    print(f"Data Type:   {astropy_time_array.dtype}")
+
+    if len(astropy_time_array) > 0:
+        print("\nFirst 3 elements in the NumPy array:")
+        for t in astropy_time_array[:3]:
+            print(f" -> {t}")
+
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+
     # Your data arrays are now fully ready for any downstream processing
     logger.info(f"Pipeline finished! Calibration Stack: {flat_cor.shape} | Cropped Dark: {cropped_dark.shape}")
 

@@ -607,3 +607,302 @@ def select_roi_with_sliders(imgs: np.ndarray, vmax: float = 50000, cmap: str = "
 
     # Keep references alive inside system memory tracking registries so widgets don't freeze up
     return [slider_xmin, slider_xmax, slider_ymin, slider_ymax, export_btn]
+#
+#
+# from datetime import datetime, timedelta
+#
+#
+# def find_matching_hdf5_index(t_start, t_end, metadata: list) -> int:
+#     """
+#     Finds the even index of the HDF5 dataset that best matches the
+#     observation time window based on dataset start times and durations.
+#
+#     Parameters:
+#         t_start: Start of the observation window (datetime, str, or Astropy/Pandas wrapper).
+#         t_end: End of the observation window (datetime, str, or Astropy/Pandas wrapper).
+#         metadata (list): List of metadata dictionaries extracted from the HDF5 file.
+#
+#     Returns:
+#         int: The matching even index of the HDF5 dataset, or None if no match is found.
+#     """
+#
+#     def parse_time(t_input):
+#         """Helper to convert string/object timestamps into standard Python datetimes."""
+#         if isinstance(t_input, datetime):
+#             return t_input
+#         if hasattr(t_input, 'datetime'):  # Handles pandas/astropy wrappers
+#             return t_input.datetime
+#         if isinstance(t_input, str):
+#             t_str = t_input.strip('"\' \n\t')  # Clean up any residual formatting quotes
+#             for fmt in (
+#                     "%Y-%m-%d %H:%M:%S.%f",
+#                     "%Y-%m-%d %H:%M:%S",
+#                     "%Y-%m-%d %H:%M",
+#                     "%Y-%m-%dT%H:%M:%S.%f",
+#                     "%Y-%m-%dT%H:%M:%S"
+#             ):
+#                 try:
+#                     return datetime.strptime(t_str, fmt)
+#                 except ValueError:
+#                     continue
+#         raise TypeError(f"Could not parse time format: {t_input}")
+#
+#     def get_attribute_value(item, attr_name):
+#         """
+#         Extremely robust recursive parser to extract values from flat
+#         dictionaries, flat attribute lists, or hierarchical nested schemas.
+#         """
+#         # 1. Direct check in the dictionary root (e.g. your custom make_metadata_dict)
+#         if attr_name in item:
+#             return item[attr_name]
+#
+#         # 2. Check inside structured attribute arrays
+#         attrs = item.get("attributes")
+#         if attrs:
+#             if isinstance(attrs, list):
+#                 for attr in attrs:
+#                     if isinstance(attr, dict):
+#                         if attr.get("name") == attr_name:
+#                             # Try to extract the literal value from the schema
+#                             if "value" in attr:
+#                                 return attr["value"]
+#                             for k, v in attr.items():
+#                                 if k not in ("name", "shape", "type", "dtype"):
+#                                     return v
+#                         if attr_name in attr:
+#                             return attr[attr_name]
+#             elif isinstance(attrs, dict):
+#                 return attrs.get(attr_name)
+#
+#         # 3. Recursive deep-search fallback in case attributes are nested deeper
+#         def recursive_search(d, target_key):
+#             if isinstance(d, dict):
+#                 if target_key in d:
+#                     return d[target_key]
+#                 for v in d.values():
+#                     res = recursive_search(v, target_key)
+#                     if res is not None:
+#                         return res
+#             elif isinstance(d, list):
+#                 for element in d:
+#                     res = recursive_search(element, target_key)
+#                     if res is not None:
+#                         return res
+#             return None
+#
+#         return recursive_search(item, attr_name)
+#
+#     # Convert observation window inputs to datetimes
+#     dt_start = parse_time(t_start)
+#     dt_end = parse_time(t_end)
+#
+#     best_index = None
+#     max_overlap = -1.0
+#     closest_index = None
+#     min_time_difference = float('inf')
+#
+#     # Iterate through even indices only (0, 2, 4, 6, ...)
+#     for i in range(0, len(metadata), 2):
+#         item = metadata[i]
+#
+#         # 1. Extract and parse start time
+#         start_val = get_attribute_value(item, "DATE_ROW0") or get_attribute_value(item, "DATE_CREATE")
+#         if not start_val:
+#             continue
+#
+#         try:
+#             dataset_start = parse_time(start_val)
+#         except (TypeError, ValueError):
+#             continue
+#
+#         # 2. Extract row delta (default to 500 ms if missing)
+#         row_delta = get_attribute_value(item, "ROW_DELTA")
+#         delta_seconds = float(row_delta) / 1000.0 if row_delta is not None else 0.5
+#
+#         # 3. Calculate dataset end time using the number of rows from 'shape'
+#         shape = item.get("shape")
+#         num_rows = shape[0] if (shape and len(shape) > 0) else 1
+#
+#         dataset_duration = timedelta(seconds=num_rows * delta_seconds)
+#         dataset_end = dataset_start + dataset_duration
+#
+#         # 4. Calculate overlap with the observation window
+#         overlap_start = max(dt_start, dataset_start)
+#         overlap_end = min(dt_end, dataset_end)
+#
+#         if overlap_start < overlap_end:
+#             overlap_seconds = (overlap_end - overlap_start).total_seconds()
+#             if overlap_seconds > max_overlap:
+#                 max_overlap = overlap_seconds
+#                 best_index = i
+#         else:
+#             # Fallback distance calculations in case no dataset overlaps directly
+#             time_diff = abs((dataset_start - dt_start).total_seconds())
+#             if time_diff < min_time_difference:
+#                 min_time_difference = time_diff
+#                 closest_index = i
+#
+#     # Return the matching index
+#     if best_index is not None:
+#         print(f"Found matching dataset at even index {best_index} with {max_overlap:.1f}s of overlap.")
+#         return best_index
+#     elif closest_index is not None:
+#         print(f"No direct overlap found. Using closest dataset at even index {closest_index} "
+#               f"(start difference: {min_time_difference:.1f}s).")
+#         return closest_index
+#
+#     print("Error: Could not identify any suitable dataset index from metadata.")
+#     return None
+
+
+from datetime import datetime, timedelta
+
+
+def find_matching_hdf5_index(t_start, t_end, metadata: list) -> int:
+    """
+    Finds the semantic even index of the HDF5 dataset that best matches the
+    observation time window based on dataset start times and forward-increasing durations.
+
+    Parameters:
+        t_start: Start of the observation window (datetime, str, or Astropy/Pandas wrapper).
+        t_end: End of the observation window (datetime, str, or Astropy/Pandas wrapper).
+        metadata (list): List of metadata dictionaries extracted from the HDF5 file.
+
+    Returns:
+        int: The matching even semantic index of the HDF5 dataset (e.g., 28), or None if not found.
+    """
+
+    def parse_time(t_input):
+        """Helper to convert string/object timestamps into standard Python datetimes."""
+        if isinstance(t_input, datetime):
+            return t_input
+        if hasattr(t_input, 'datetime'):
+            return t_input.datetime
+        if isinstance(t_input, str):
+            t_str = t_input.strip('"\' \n\t')
+            for fmt in (
+                    "%Y-%m-%d %H:%M:%S.%f",
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d %H:%M",
+                    "%Y-%m-%dT%H:%M:%S.%f",
+                    "%Y-%m-%dT%H:%M:%S"
+            ):
+                try:
+                    return datetime.strptime(t_str, fmt)
+                except ValueError:
+                    continue
+        raise TypeError(f"Could not parse time format: {t_input}")
+
+    def get_attribute_value(item, attr_name):
+        """Extracts values from flat dictionaries or hierarchical nested attributes."""
+        if attr_name in item:
+            return item[attr_name]
+
+        attrs = item.get("attributes")
+        if attrs:
+            if isinstance(attrs, list):
+                for attr in attrs:
+                    if isinstance(attr, dict):
+                        if attr.get("name") == attr_name:
+                            if "value" in attr:
+                                return attr["value"]
+                            for k, v in attr.items():
+                                if k not in ("name", "shape", "type", "dtype"):
+                                    return v
+                        if attr_name in attr:
+                            return attr[attr_name]
+            elif isinstance(attrs, dict):
+                return attrs.get(attr_name)
+
+        def recursive_search(d, target_key):
+            if isinstance(d, dict):
+                if target_key in d:
+                    return d[target_key]
+                for v in d.values():
+                    res = recursive_search(v, target_key)
+                    if res is not None:
+                        return res
+            elif isinstance(d, list):
+                for element in d:
+                    res = recursive_search(element, target_key)
+                    if res is not None:
+                        return res
+            return None
+
+        return recursive_search(item, attr_name)
+
+    # Convert observation window inputs to datetimes
+    dt_start = parse_time(t_start)
+    dt_end = parse_time(t_end)
+
+    best_semantic_index = None
+    max_overlap = -1.0
+    closest_semantic_index = None
+    min_time_difference = float('inf')
+
+    for item in metadata:
+        # Extract the semantic index from the dataset name (e.g., "/0028_0500ms_LIGHT" -> 28)
+        name = item.get("name", "")
+        clean_name = name.lstrip("/")
+        parts = clean_name.split("_")
+
+        if not parts or not parts[0].isdigit():
+            continue
+
+        semantic_index = int(parts[0])
+
+        # We only care about even structures (0, 2, 4, 6, ...)
+        if semantic_index % 2 != 0:
+            continue
+
+        # 1. Extract and parse start time
+        start_val = get_attribute_value(item, "DATE_ROW0") or get_attribute_value(item, "DATE_CREATE")
+        if not start_val:
+            continue
+
+        try:
+            dataset_start = parse_time(start_val)
+        except (TypeError, ValueError):
+            continue
+
+        # 2. Extract row delta (default to 500 ms if missing)
+        row_delta = get_attribute_value(item, "ROW_DELTA")
+        delta_seconds = float(row_delta) / 1000.0 if row_delta is not None else 0.5
+
+        # 3. Calculate dataset end time by assuming time increases forward
+        shape = item.get("shape")
+        num_rows = shape[0] if (shape and len(shape) > 0) else 1
+
+        dataset_duration = timedelta(seconds=num_rows * delta_seconds)
+        dataset_end = dataset_start + dataset_duration
+
+        # 4. Calculate overlap with the observation window
+        overlap_start = max(dt_start, dataset_start)
+        overlap_end = min(dt_end, dataset_end)
+
+        if overlap_start < overlap_end:
+            overlap_seconds = (overlap_end - overlap_start).total_seconds()
+            if overlap_seconds > max_overlap:
+                max_overlap = overlap_seconds
+                best_semantic_index = semantic_index
+        else:
+            # Fallback distance calculations in case of zero direct overlap
+            time_diff = abs((dataset_start - dt_start).total_seconds())
+            if time_diff < min_time_difference:
+                min_time_difference = time_diff
+                closest_semantic_index = semantic_index
+
+    # Return the matching semantic index
+    if best_semantic_index is not None:
+        print(f"Found matching dataset: '{best_semantic_index:04d}' with {max_overlap:.1f}s of overlap.")
+        return best_semantic_index
+    elif closest_semantic_index is not None:
+        print(f"No direct overlap found. Using closest dataset: '{closest_semantic_index:04d}' "
+              f"(start difference: {min_time_difference:.1f}s).")
+        return closest_semantic_index
+
+    print("Error: Could not identify any suitable dataset index from metadata.")
+    return None
+
+
+

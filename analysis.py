@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 
 
 def average_numpy_array(
-    arr: np.ndarray,
-    out_dtype: np.dtype = None,
-    axis = 0,
-    logger=None
+        arr: np.ndarray,
+        out_dtype: np.dtype = None,
+        axis=0,
+        logger=None
 ) -> np.ndarray:
     """
     Compute the average of a NumPy array along a given axis and cast the result
@@ -40,14 +40,15 @@ def average_numpy_array(
         logger.debug(f"Shape of averaged numpy array after: {avg.shape}")
     return avg.astype(out_dtype, copy=False)
 
+
 def average_hdf_light(
-    hdf_dir: str,
-    light_idx: int,
-    axis: int = 0,
-    out_dtype: np.dtype = np.int16,
-    save=False,
-    names=("master_image",["C","D"]),
-    logger=None
+        hdf_dir: str,
+        light_idx: int,
+        axis: int = 0,
+        out_dtype: np.dtype = np.int16,
+        save=False,
+        names=("master_image", ["C", "D"]),
+        logger=None
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Load C and D light HDF files (spectrum) from a directory, compute their averages
@@ -93,10 +94,11 @@ def average_hdf_light(
     )
     return avg_C, avg_D
 
+
 def analyze_dark_frame(
         image: np.ndarray,
         N: float = 10.0,
-        logger = None
+        logger=None
 ) -> dict:
     """
     Analyzes a dark frame to find global statistics and identify hot pixels.
@@ -251,8 +253,227 @@ def calculate_erupting_pixels(
     return normalized_erupting_pixels, total_mask_pixels
 
 
+import os
+import re
+import numpy as np
+from astropy.time import Time
 
 
+def extract_astropy_time(filepath: str, logger=None) -> Time:
+    """
+    Extracts a timestamp from a SlitJaw filename string and converts
+    it into an astropy.time.Time object using explicit microsecond definitions.
+    """
+    filename = os.path.basename(filepath)
+
+    # Separates the 2-digit seconds (\d{2}) and the trailing microseconds (\d+) explicitly
+    pattern = r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.(\d+)"
+    match = re.search(pattern, filename)
+
+    if not match:
+        error_msg = f"Could not extract a valid timestamp pattern from filename: {filename}"
+        if logger:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    # Unpack all groups, explicitly isolating the microsecond digits
+    year, month, day, hour, minute, second, microsecond = match.groups()
+
+    # Construct the high-precision ISO definition string
+    iso_string = f"{year}-{month}-{day} {hour}:{minute}:{second}.{microsecond}"
+
+    return Time(iso_string, format="iso", scale="utc")
+
+
+import os
+import re
+import numpy as np
+from astropy.time import Time
+
+
+def compile_directory_timestamps(directory_path: str, logger=None) -> Time:
+    """
+    Scans a directory for files matching the SlitJaw timestamp pattern,
+    extracts their times, and returns a single unified, vectorized Astropy Time array.
+    """
+    if not os.path.isdir(directory_path):
+        error_msg = f"Provided directory path does not exist: {directory_path}"
+        if logger:
+            logger.error(error_msg)
+        raise FileNotFoundError(error_msg)
+
+    if logger:
+        logger.info(f"Scanning directory for timestamps: {directory_path}")
+
+    # Naming pattern to identify valid target files and filter out system artifacts
+    target_pattern = r"\d{8}_\d{6}\.\d+"
+
+    # 1. Gather and sort filenames to maintain chronological sequence order
+    all_files = sorted(os.listdir(directory_path))
+    valid_files = [f for f in all_files if re.search(target_pattern, f)]
+
+    if not valid_files:
+        if logger:
+            logger.warning(f"No files matching the timestamp pattern were found in {directory_path}")
+        return Time([])  # Returns an empty vectorized Time object
+
+    # 2. Process files sequentially through the extractor
+    time_objects_list = []
+    for file_name in valid_files:
+        full_path = os.path.join(directory_path, file_name)
+        try:
+            t_obj = extract_astropy_time(full_path, logger=logger)
+            time_objects_list.append(t_obj)
+        except ValueError:
+            # Skip file if parsing fails edge-cases
+            continue
+
+    # 3. Pack into a unified, vectorized Astropy Time array object
+    # This converts a list of scalar Time objects into a single cohesive time array
+    time_array = Time(time_objects_list)
+
+    if logger:
+        logger.info(f"Successfully compiled {len(time_array)} time steps into a unified Time array.")
+
+    return time_array
+
+
+import numpy as np
+
+
+def calculate_goes_gradient(goes_obj, channel: str = "xrsb") -> np.ndarray:
+    """
+    Vypočíta časový gradient z originálneho SunPy TimeSeries objektu.
+
+    Parametre:
+        goes_obj: SunPy TimeSeries objekt (vrátený z get_goes_flux)
+        channel (str): Kanál pre výpočet gradientu ("xrsb" alebo "xrsa")
+
+    Návratová hodnota:
+        np.ndarray: Jednorozmerné pole s vypočítaným gradientom v jednotkách W/(m²·s).
+    """
+    # Získanie hodnôt toku z objektu
+    flux = goes_obj.quantity(channel).value
+
+    # Získanie časovej osi z Astropy Time (ktorá je vnútri objektu) a prepočet na sekundy
+    times = goes_obj.time
+    time_seconds = (times - times[0]).to_value('s')
+
+    # Výpočet gradientu (derivácie) vzhľadom na čas v sekundách
+    gradient = np.gradient(flux, time_seconds)
+
+    return gradient
+
+
+from datetime import datetime
+import numpy as np
+from astropy.time import Time
+
+
+def slice_and_calculate_h_alpha(light_obj, t_start, t_end, center_idx: int = 1379, half_width: int = 2):
+    """
+    Slices a Light object based on start and end times, and extracts/calculates
+    the H-alpha intensities around the specified spectral index range.
+
+    Parameters:
+        light_obj: The Light spectrometer object (contains .data and .t_range).
+        t_start: Start of the slice window (datetime, str, or Astropy/Pandas wrapper).
+        t_end: End of the slice window (datetime, str, or Astropy/Pandas wrapper).
+        center_idx (int): The central H-alpha pixel index (default: 1379).
+        half_width (int): Index radius around the center (default: 2, yielding a range of center_idx - 2 to center_idx + 2).
+
+    Returns:
+        tuple: (timerange, h_alpha_integrated, h_alpha_raw)
+            - timerange (astropy.time.Time): Sliced time range as an Astropy Time object.
+            - h_alpha_integrated (np.ndarray): 1D array of summed intensities across the spectral range for each time step.
+            - h_alpha_raw (np.ndarray): 2D slice of raw intensities (time rows x spectral columns).
+    """
+
+    # 1. Flexible time parsing helper
+    def parse_to_datetime(t_input):
+        if isinstance(t_input, datetime):
+            return t_input
+        if hasattr(t_input, 'datetime'):  # Handles pandas/astropy wrappers
+            return t_input.datetime
+        if isinstance(t_input, str):
+            t_str = t_input.strip('"\' \n\t')
+            for fmt in (
+                    "%Y-%m-%d %H:%M:%S.%f",
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d %H:%M",
+                    "%Y-%m-%dT%H:%M:%S.%f",
+                    "%Y-%m-%dT%H:%M:%S"
+            ):
+                try:
+                    return datetime.strptime(t_str, fmt)
+                except ValueError:
+                    continue
+        raise TypeError(f"Unsupported time format: {type(t_input)}")
+
+    # Parse inputs to datetime objects
+    dt_start = parse_to_datetime(t_start)
+    dt_end = parse_to_datetime(t_end)
+
+    # 2. Clean and convert t_range to a numpy array of datetimes
+    t_range_array = np.array(light_obj.t_range)
+
+    # 3. Find the exact insertion indices inside the timeline
+    start_idx = np.searchsorted(t_range_array, dt_start, side='left')
+    end_idx = np.searchsorted(t_range_array, dt_end, side='right')
+
+    # 4. Slice the time array and convert to Astropy Time
+    subarray = t_range_array[start_idx:end_idx]
+    timerange = Time(subarray)
+
+    # 5. Define spectral bounds (default center 1379 with half_width 2 means indices 1377 to 1381 inclusive)
+    start_col = center_idx - half_width
+    end_col = center_idx + half_width + 1  # Add 1 because python slicing is exclusive
+
+    # Bounds-check the column indices against the data dimensions
+    num_cols = light_obj.data.shape[1]
+    start_col = max(0, start_col)
+    end_col = min(num_cols, end_col)
+
+    # 6. Slice the 2D spectral data array [time_interval, wavelength_interval]
+    h_alpha_raw = light_obj.data[start_idx:end_idx, start_col:end_col]
+
+    # Calculate integrated (summed) intensity across the spectral line for each time step
+    h_alpha_integrated = np.sum(h_alpha_raw, axis=1)
+
+    return timerange, h_alpha_integrated
+
+
+def sum_circle_values(images_array,
+                      crop_bounds=None,
+                      circle_center=None,
+                      circle_radius=None):
+    """
+    Vectorized function: crops images and sums values inside a circular mask.
+    Raises ValueError if any structural bounds or dimensions are missing.
+    """
+    # Throw an error if any of the required spatial parameters are omitted
+    if crop_bounds is None or circle_center is None or circle_radius is None:
+        raise ValueError(
+            f"Missing required arguments! You must explicitly provide: \n"
+            f"  - crop_bounds (tuple)\n"
+            f"  - circle_center (tuple)\n"
+            f"  - circle_radius (int)\n"
+            f"Received: crop_bounds={crop_bounds}, circle_center={circle_center}, circle_radius={circle_radius}"
+        )
+
+    x_min, x_max, y_min, y_max = crop_bounds
+    ny, nx = y_max - y_min, x_max - x_min
+
+    # Build circular mask once
+    y, x = np.ogrid[:ny, :nx]
+    mask = (x - circle_center[0]) ** 2 + (y - circle_center[1]) ** 2 <= circle_radius ** 2
+
+    # Crop all images at once
+    cropped_images = images_array[:, y_min:y_max, x_min:x_max]
+
+    # Apply mask with broadcasting and sum across spatial dimensions
+    values = np.sum(cropped_images * mask, axis=(1, 2))
+    return values
 
 def run_analysis(calibrated_data):
     print("  Running analysis")

@@ -9,58 +9,64 @@ from processing import crop_images
 import os
 import textwrap
 from analysis import *
+from processing import *
+from data_io import *
 import os
 
+import os
+import numpy as np
+import matplotlib.pyplot as plt
 
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+import matplotlib.dates as mdates
+import numpy as np
+import os
 
 def plot_single_series(
         data: np.ndarray,
-        x_series: np.ndarray = None,
+        time_series: np.ndarray = None,
         plot_graph: bool = True,
         title: str = "Data Profile",
-        x_label_custom: str = None,
+        x_label: str = None,
         y_label: str = "Value",
         line_color: str = "#1f77b4",
         save_name: str = None,
+        num_ticks: int = None,  # <--- Added parameter for tick density control
         logger=None,
         **fig_kwargs
 ):
     """
     Plots a single 1D data array with an option to supply a custom X-axis or time series.
-
-    Parameters:
-    -----------
-    data : np.ndarray
-        The 1D data array containing values to plot on the Y-axis.
-    x_series : np.ndarray, optional
-        A 1D array containing timestamps, frame indexes, or locations for the X-axis.
-    plot_graph : bool, default True
-        If False, runs silently in the background (useful when you only want to save).
-    title : str, default "Data Profile"
-        The main title of the plot.
-    x_label_custom : str, optional
-        Custom label for the X-axis. Defaults to "Time" if x_series is provided, else "Index".
-    y_label : str, default "Value"
-        Label text for the Y-axis.
-    line_color : str, default "#1f77b4" (Classic Blue)
-        Hex string or named color for the plot line.
-    save_name : str, optional
-        Filename to save the plot directly inside the 'Plots' directory.
+    Safely unpacks Astropy/Pandas time structures and normalizes parameter names.
     """
+    # 1. Gracefully normalize overlapping keyword arguments from the caller
+    x_label = x_label or fig_kwargs.pop("xlabel", None)
+    y_label = y_label if y_label != "Value" else fig_kwargs.pop("ylabel", y_label)
+    save_name = save_name or fig_kwargs.pop("save_filename", None)
+    num_ticks = num_ticks or fig_kwargs.pop("num_ticks", None) or fig_kwargs.pop("n_xticks", None)
+
     if logger:
         logger.info(f"Preparing single series plot for array of size: {len(data)}")
 
-    # 1. Resolve X-Axis Data and Labeling
-    if x_series is not None:
-        x_data = x_series
-        x_label = x_label_custom if x_label_custom else "Time"
+    # 2. Resolve X-Axis Data, converting Astropy Time or Pandas timestamps on the fly
+    if time_series is not None:
+        if hasattr(time_series, "datetime"):
+            x_data = time_series.datetime
+        elif hasattr(time_series, "to_pydatetime"):
+            x_data = time_series.to_pydatetime()
+        else:
+            x_data = time_series
+
+        x_label = x_label if x_label else "Time"
         if len(x_data) != len(data):
             raise ValueError(f"X-series length ({len(x_data)}) must match the data array length ({len(data)}).")
     else:
         x_data = np.arange(len(data))
-        x_label = x_label_custom if x_label_custom else "Index"
+        x_label = x_label if x_label else "Index"
 
-    # 2. Setup Figure Layout
+    # 3. Setup Figure Layout
     if plot_graph or save_name is not None:
         figsize = fig_kwargs.get("figsize", (10, 5))
         fig, ax = plt.subplots(figsize=figsize)
@@ -68,17 +74,34 @@ def plot_single_series(
         # Plot line with a subtle marker for data points
         ax.plot(x_data, data, color=line_color, linewidth=2, linestyle="-", marker="o", markersize=3, alpha=0.8)
 
+        # Dynamic Tick Adjustments
+        if num_ticks is not None:
+            if time_series is not None:
+                # Controls max ticks for date objects
+                ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=num_ticks))
+            else:
+                # Controls max ticks for numerical/index arrays
+                ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=num_ticks))
+
         # Style layout
         ax.set_title(title, fontsize=13, fontweight='bold', pad=12)
         ax.set_xlabel(x_label, fontsize=11)
         ax.set_ylabel(y_label, fontsize=11)
         ax.grid(True, linestyle="--", alpha=0.5)
 
-        # ---- Process Saving Block ----
+        # Auto-format dates cleanly if the x-axis contains datetime objects
+        if time_series is not None:
+            fig.autofmt_xdate()
+
+        # 4. Process Saving Block
         if save_name is not None:
-            output_dir = "Plots"
-            os.makedirs(output_dir, exist_ok=True)
-            save_path = os.path.join(output_dir, save_name)
+            if os.path.dirname(save_name):
+                save_path = save_name
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            else:
+                output_dir = "Plots"
+                os.makedirs(output_dir, exist_ok=True)
+                save_path = os.path.join(output_dir, save_name)
 
             plt.savefig(save_path, bbox_inches='tight', dpi=300)
 
@@ -87,22 +110,23 @@ def plot_single_series(
             else:
                 print(f"Plot successfully saved to: {save_path}")
 
-        # ---- Process Display Block ----
+        # 5. Process Display Block
         if plot_graph:
             plt.show()
         else:
-            plt.close(fig)  # Free system memory cleanly if running silently
+            plt.close(fig)
+
 
 def plot_image_grid(
-    images: np.ndarray,
-    titles: Optional[Sequence[str]] = None,
-    n_images: int = 6,
-    suptitle: Optional[str] = None,
-    cmap: str = "gray",
-    figsize_scale: float = 5.5,
-    save_name: str = None,
-    plot_image: bool = True,
-    logger=None
+        images: np.ndarray,
+        titles: Optional[Sequence[str]] = None,
+        n_images: int = 6,
+        suptitle: Optional[str] = None,
+        cmap: str = "gray",
+        figsize_scale: float = 5.5,
+        save_name: str = None,
+        plot_image: bool = True,
+        logger=None
 ) -> None:
     """
         Plot a uniform grid of images with optional titles.
@@ -275,9 +299,10 @@ def plot_single_image(
         else:
             plt.close(fig)  # Prevent background engine memory leaks
 
+
 def save_fits_image(img: np.ndarray,
                     filename: str,
-                    output_dir: str|None = None,
+                    output_dir: str | None = None,
                     logger=None,
                     use_absolute_path: bool = True) -> None:
     '''Saves the fits file into output_dir.
@@ -433,18 +458,19 @@ def plot_image_with_crop(
 
 
 def plot_dark_histograms(
-    stats: dict,
-    logger=None,
-    title_all="All Points (with hotpoints)",
-    title_no_hot="Without Hotpoints",
-    title_only_hot="Only Hotpoints",
-    title_only_clean="Only Clean Points",
-    save_name=None,
-    plot_histograms=True,
-    **fig_kwargs
+        stats: dict,
+        logger=None,
+        title_all="All Points (with hotpoints)",
+        title_no_hot="Without Hotpoints",
+        title_only_hot="Only Hotpoints",
+        title_only_clean="Only Clean Points",
+        save_name=None,
+        plot_histograms=True,
+        **fig_kwargs
 ):
     """
     Generates a 2x2 grid of histograms analyzing the distribution of hot and clean pixels.
+    Handles nested directory creation safely if a full save path is provided.
     """
     if logger:
         logger.info("Generating dark frame histograms...")
@@ -494,27 +520,26 @@ def plot_dark_histograms(
     axes[1, 1].hist(cp, bins=bins_clean, edgecolor="black", alpha=0.7, color="green")
     format_ax(axes[1, 1], title_only_clean)
 
-    # ---- Save Figure Setup (Paste right before plt.show()) ----
-    # Expects `save_name` (str or None) passed into the function's arguments
-    if 'save_name' in locals() or 'save_name' in globals():
-        if save_name is not None:
-            import os
-            output_dir = "Plots"
+    # ---- Save Figure Setup ----
+    if save_name is not None:
+        import os
 
-            # Create the directory safely if it doesn't exist
-            os.makedirs(output_dir, exist_ok=True)
+        # If save_name is just a filename with no directory path, default to "Plots"
+        if not os.path.dirname(save_name):
+            save_name = os.path.join("Plots", save_name)
 
-            # Combine directory and filename
-            save_path = os.path.join(output_dir, save_name)
+        # Extract whatever directory path actually exists and build it recursively
+        dir_name = os.path.dirname(save_name)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
 
-            # Save the figure (bbox_inches='tight' prevents labels from cutting off)
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        # Save the figure (bbox_inches='tight' prevents labels from cutting off)
+        plt.savefig(save_name, bbox_inches='tight', dpi=300)
 
-            if 'logger' in locals() and logger is not None:
-                logger.info(f"Plot successfully saved to: {save_path}")
-            else:
-                print(f"Plot successfully saved to: {save_path}")
-    # -----------------------------------------------------------
+        if logger is not None:
+            logger.info(f"Plot successfully saved to: {save_name}")
+        else:
+            print(f"Plot successfully saved to: {save_name}")
 
     if plot_histograms:
         plt.tight_layout()
@@ -527,17 +552,18 @@ def plot_dark_histograms(
 
 
 def plot_hot_pixel_map(
-    stats: dict,
-    logger=None,
-    title_clipped="Clipped Master Dark (No Hot Points)",
-    title_highlighted="Master Dark with Hot Pixels Highlighted",
-    save_name=None,
-    plot_map: bool = True,
-    **fig_kwargs
+        stats: dict,
+        logger=None,
+        title_clipped="Clipped Master Dark (No Hot Points)",
+        title_highlighted="Master Dark with Hot Pixels Highlighted",
+        save_name=None,
+        plot_map: bool = True,
+        **fig_kwargs
 ):
     """
     Plots the master dark image side-by-side: one clipped to the threshold,
     and one highlighting the exact locations of the hot pixels.
+    Handles nested directory creation safely if a full save path is provided.
     """
     if logger:
         logger.info("Generating hot pixel spatial maps...")
@@ -571,27 +597,27 @@ def plot_hot_pixel_map(
     axes[1].set_xlabel("X pixel")
     axes[1].set_ylabel("Y pixel")
 
-    # ---- Save Figure Setup (Paste right before plt.show()) ----
-    # Expects `save_name` (str or None) passed into the function's arguments
-    if 'save_name' in locals() or 'save_name' in globals():
-        if save_name is not None:
-            import os
-            output_dir = "Plots"
+    # ---- Save Figure Setup ----
+    if save_name is not None:
+        import os
 
-            # Create the directory safely if it doesn't exist
-            os.makedirs(output_dir, exist_ok=True)
+        # If save_name is just a filename with no directory path, default to "Plots"
+        if not os.path.dirname(save_name):
+            save_name = os.path.join("Plots", save_name)
 
-            # Combine directory and filename
-            save_path = os.path.join(output_dir, save_name)
+        # Extract whatever directory path actually exists and build it recursively
+        dir_name = os.path.dirname(save_name)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
 
-            # Save the figure (bbox_inches='tight' prevents labels from cutting off)
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        # Save the figure (bbox_inches='tight' prevents labels from cutting off)
+        plt.savefig(save_name, bbox_inches='tight', dpi=300)
 
-            if 'logger' in locals() and logger is not None:
-                logger.info(f"Plot successfully saved to: {save_path}")
-            else:
-                print(f"Plot successfully saved to: {save_path}")
-    # -----------------------------------------------------------
+        if logger is not None:
+            logger.info(f"Plot successfully saved to: {save_name}")
+        else:
+            print(f"Plot successfully saved to: {save_name}")
+
     if plot_map:
         plt.tight_layout()
         plt.show()
@@ -601,6 +627,8 @@ def plot_hot_pixel_map(
     if logger:
         logger.info("Spatial maps plotted successfully.")
 
+
+import textwrap
 
 def print_dark_analysis_table(
         stats: dict,
@@ -614,6 +642,7 @@ def print_dark_analysis_table(
     """
     Generates a cleanly formatted summary table from the dark frame analysis.
     Uses spaces as thousands separators for large numbers (e.g., 1 000 000).
+    Handles nested directory creation safely if a full save path is provided.
     """
     if logger:
         logger.info("Generating summary table data...")
@@ -731,16 +760,24 @@ def print_dark_analysis_table(
 
         # ---- Process Saving Block ----
         if save_name is not None:
-            output_dir = "Plots"
-            os.makedirs(output_dir, exist_ok=True)
-            save_path = os.path.join(output_dir, save_name)
+            import os
 
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+            # If save_name is just a filename with no directory path, default to "Plots"
+            if not os.path.dirname(save_name):
+                save_name = os.path.join("Plots", save_name)
+
+            # Extract whatever directory path actually exists and build it recursively
+            dir_name = os.path.dirname(save_name)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+
+            # Save the figure
+            plt.savefig(save_name, bbox_inches='tight', dpi=300)
 
             if logger is not None:
-                logger.info(f"Plot successfully saved to: {save_path}")
+                logger.info(f"Plot successfully saved to: {save_name}")
             else:
-                print(f"Plot successfully saved to: {save_path}")
+                print(f"Plot successfully saved to: {save_name}")
 
         # ---- Process Display Block ----
         if plot_table:
@@ -766,6 +803,7 @@ def analyze_and_plot_rect(
     """
     Crops images to a specific ROI rectangle, calculates the mean and standard
     deviation values within that box, and uniformly plots N sample frames.
+    Handles nested directory creation safely if a full save path is provided.
 
     Parameters:
     -----------
@@ -775,10 +813,10 @@ def analyze_and_plot_rect(
         Bounding spatial coordinates for the ROI rectangle.
     num_plots : int, optional
         Number of images to uniformly select and plot on screen.
-    vmax : float, default 50000
+    vmax : float, default 1000
         Maximum display scaling cutoff for display normalization.
     save_name : str, optional
-        Filename to save the final plot in the 'Plots' folder.
+        Filename or complete path to save the final plot.
     """
     if logger:
         logger.info("Initializing ROI analysis workflow...")
@@ -840,14 +878,22 @@ def analyze_and_plot_rect(
 
         plt.tight_layout()
 
-        # Save logic execution guardrail
+        # ---- Save Logic Execution ----
         if save_name is not None:
-            output_dir = "Plots"
-            os.makedirs(output_dir, exist_ok=True)
-            save_path = os.path.join(output_dir, save_name)
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+            import os
+
+            # If save_name is just a filename with no directory path, default to "Plots"
+            if not os.path.dirname(save_name):
+                save_name = os.path.join("Plots", save_name)
+
+            # Extract whatever directory path actually exists and build it recursively
+            dir_name = os.path.dirname(save_name)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+
+            plt.savefig(save_name, bbox_inches='tight', dpi=300)
             if logger:
-                logger.info(f"ROI verification grid saved to: {save_path}")
+                logger.info(f"ROI verification grid saved to: {save_name}")
 
         if plot_graphs:
             plt.show()
@@ -872,6 +918,7 @@ def plot_stats(
     """
     Plots mean and standard deviation arrays side-by-side.
     Supports frame tracking indices or custom time-series arrays as the X-axis.
+    Handles nested directory creation safely if a full save path is provided.
     """
     if logger:
         logger.info("Generating side-by-side ROI metrics graphs...")
@@ -909,23 +956,30 @@ def plot_stats(
 
         # ---- Process Saving Block ----
         if save_name is not None:
-            output_dir = "Plots"
-            os.makedirs(output_dir, exist_ok=True)
-            save_path = os.path.join(output_dir, save_name)
+            import os
 
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+            # If save_name is just a filename with no directory path, default to "Plots"
+            if not os.path.dirname(save_name):
+                save_name = os.path.join("Plots", save_name)
+
+            # Extract whatever directory path actually exists and build it recursively
+            dir_name = os.path.dirname(save_name)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+
+            # Save the figure (bbox_inches='tight' prevents labels from cutting off)
+            plt.savefig(save_name, bbox_inches='tight', dpi=300)
 
             if logger is not None:
-                logger.info(f"Statistics plots successfully saved to: {save_path}")
+                logger.info(f"Statistics plots successfully saved to: {save_name}")
             else:
-                print(f"Statistics plots successfully saved to: {save_path}")
+                print(f"Statistics plots successfully saved to: {save_name}")
 
         # ---- Process Display Block ----
         if plot_stats:
             plt.show()
         else:
             plt.close(fig)  # Safely close figure object to free system memory if silent
-
 
 def analyze_and_plot_circ(
         imgs: np.ndarray,
@@ -942,6 +996,7 @@ def analyze_and_plot_circ(
     Isolates a circular Region of Interest (ROI), calculates the mean and
     standard deviation strictly within that circle across all frames, and
     uniformly plots N sample frames with a circular boundary overlay.
+    Handles nested directory creation safely if a full save path is provided.
 
     Parameters:
     -----------
@@ -958,7 +1013,7 @@ def analyze_and_plot_circ(
     vmax : float, optional
         Maximum scaling intensity limit for visual normalization.
     save_name : str, optional
-        Filename to save the generated figure inside the 'Plots' directory.
+        Filename or complete path to save the generated figure.
     """
     if logger:
         logger.info(f"Initializing circular ROI mask calculation (Center X={xc}, Y={yc}, R={r})...")
@@ -996,7 +1051,7 @@ def analyze_and_plot_circ(
     if logger:
         logger.info(f"Circular mask processed successfully over {num_frames} frame(s).")
 
-    # 4. Uniform Grid Plotting and Saving Layout
+    # 4. Uniform Grid Graphing and Saving Layout
     if (num_plots is not None and num_plots > 0) or save_name is not None:
         # Calculate evenly spaced array indices
         plot_indices = np.linspace(0, num_frames - 1, num_plots if num_plots else 4, dtype=int)
@@ -1028,16 +1083,24 @@ def analyze_and_plot_circ(
 
         plt.tight_layout()
 
-        # Save to disk logic block
+        # ---- Save to disk logic block ----
         if save_name is not None:
-            output_dir = "Plots"
-            os.makedirs(output_dir, exist_ok=True)
-            save_path = os.path.join(output_dir, save_name)
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+            import os
+
+            # If save_name is just a filename with no directory path, default to "Plots"
+            if not os.path.dirname(save_name):
+                save_name = os.path.join("Plots", save_name)
+
+            # Extract whatever directory path actually exists and build it recursively
+            dir_name = os.path.dirname(save_name)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+
+            plt.savefig(save_name, bbox_inches='tight', dpi=300)
             if logger:
-                logger.info(f"Circular ROI verification plot saved to: {save_path}")
+                logger.info(f"Circular ROI verification plot saved to: {save_name}")
             else:
-                print(f"Circular ROI verification plot saved to: {save_path}")
+                print(f"Circular ROI verification plot saved to: {save_name}")
 
         # Display control block
         if plot_graphs and num_plots is not None:
@@ -1049,21 +1112,20 @@ def analyze_and_plot_circ(
     return mean_values, std_values
 
 
-
 def plot_eruption_contours(
-    imgs: np.ndarray,
-    xc: float,
-    yc: float,
-    r: float,
-    mean_ref: np.ndarray,
-    std_ref: np.ndarray,
-    num_plots: int = 4,
-    num_contours: int = 5,
-    min_sigma: float = 5.0,  # Added customizable minimum sigma parameter
-    vmax: float = None,
-    plot_graphs: bool = True,
-    save_name: str = None,
-    logger=None
+        imgs: np.ndarray,
+        xc: float,
+        yc: float,
+        r: float,
+        mean_ref: np.ndarray,
+        std_ref: np.ndarray,
+        num_plots: int = 4,
+        num_contours: int = 5,
+        min_sigma: float = 5.0,  # Added customizable minimum sigma parameter
+        vmax: float = None,
+        plot_graphs: bool = True,
+        save_name: str = None,
+        logger=None
 ):
     """
     Plots dynamic threshold contours over an eruption image stack within a circular Region of Interest (ROI).
@@ -1074,6 +1136,7 @@ def plot_eruption_contours(
     sampled frame, and spreads a specified number of contours evenly from the baseline floor up to
     just below the frame's peak intensity. High-intensity pixels exceeding the upper threshold
     are cleanly captured and enclosed inside the highest contour loop.
+    Handles nested directory creation safely if a full save path is provided.
 
     Parameters:
     -----------
@@ -1108,42 +1171,10 @@ def plot_eruption_contours(
         If True, flushes the canvas immediately to open the interactive visualization window.
         If False, closes the figure canvas silently to protect background system memory.
     save_name : str, optional
-        The filename string (e.g., 'eruption_contours.png') to export the final figure grid.
-        Files are compiled and saved automatically inside a local directory named 'Plots/'.
+        The filename or complete path to export the final figure grid.
     logger : logging.Logger, optional
         An optional pipeline tracking logger instance used to transmit processing state updates
         and export milestones to standard output.
-
-    Returns:
-    --------
-    None
-        The function directly renders graphics to the selected matplotlib backend context or
-        exports visual image frames to your local file system array.
-
-    Notes:
-    ------
-    * **Dynamic Spacing Engine:** Rather than utilizing fixed, static thresholds across an entire
-      run, contour intervals are computed uniquely per frame using linear spacing from the custom
-      sigma floor up to 98% of that specific frame's peak masked value.
-    * **Peak Enclosure Guard:** Capping the upper contour bound at 98% of the absolute local maximum
-      pixel intensity ensures that apex emission points form fully closed boundary loop vectors on
-      screen instead of collapsing or terminating exactly on single pixel coordinates.
-    * **Mask Handling:** An explicit spatial stencil is configured once using open coordinate grids.
-      Calculations for the active contour levels are executed strictly inside this circular geometry,
-      leaving raw outside background arrays unpolluted by contour calculations.
-
-    Examples:
-    ---------
-    >>> # Execute tracking with an 8-sigma floor across 6 sampled timeline frames
-    >>> plot_eruption_contours(
-    ...     imgs=solar_disk_stack,
-    ...     xc=412.5, yc=280.0, r=45.0,
-    ...     mean_ref=bg_means,
-    ...     std_ref=bg_stds,
-    ...     num_plots=6,
-    ...     min_sigma=8.0,
-    ...     save_name="flare_core_evolution.pdf"
-    ... )
     """
     if logger:
         logger.info(f"Generating localized eruption contour maps (Floor = Mean + {min_sigma}σ)...")
@@ -1229,7 +1260,8 @@ def plot_eruption_contours(
         ax.add_patch(visual_circle)
 
         # Context Formatting with dynamic title
-        ax.set_title(f"Frame {img_idx} ({active_contours_count} Levels Above {min_sigma}σ)", fontsize=11, fontweight='bold')
+        ax.set_title(f"Frame {img_idx} ({active_contours_count} Levels Above {min_sigma}σ)", fontsize=11,
+                     fontweight='bold')
 
     # Prune empty window spots
     for extra_ax in ax_flat[actual_plot_count:]:
@@ -1239,23 +1271,27 @@ def plot_eruption_contours(
 
     # ---- Save Module ----
     if save_name is not None:
-        output_dir = "Plots"
-        os.makedirs(output_dir, exist_ok=True)
-        save_path = os.path.join(output_dir, save_name)
-        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        import os
+
+        # If save_name is just a filename with no directory path, default to "Plots"
+        if not os.path.dirname(save_name):
+            save_name = os.path.join("Plots", save_name)
+
+        # Extract whatever directory path actually exists and build it recursively
+        dir_name = os.path.dirname(save_name)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+
+        plt.savefig(save_name, bbox_inches='tight', dpi=300)
         if logger:
-            logger.info(f"Contours saved to: {save_path}")
+            logger.info(f"Contours saved to: {save_name}")
+        else:
+            print(f"Contours saved to: {save_name}")
 
     if plot_graphs:
         plt.show()
     else:
         plt.close(fig)
-
-
-
-
-
-
 
 
 def plot_eruption_histogram(
@@ -1408,3 +1444,170 @@ def plot_average_intensity(
     )
 
     return average_int
+
+
+import datetime
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+def load_WL_spectrum():
+    wlc = np.load("./FICUS/useful_files/WL_range_C.npy")
+    wld = np.load("./FICUS/useful_files/WL_range_D.npy")
+    return wlc, wld
+
+
+def plot_spectrum_at_time(mC, mD, target_time, save_filename: str = None, show_plot: bool = True):
+    """
+    Plots the spectrum from spectrometers C and D at a specified target time.
+
+    Parameters:
+        mC: The Light object for spectrometer C (loaded via load_hdf_light).
+        mD: The Light object for spectrometer D (loaded via load_hdf_light).
+        target_time: The timestamp to plot (datetime object or parsable string).
+        save_filename (str, optional): Filepath to save the figure. If None, saving is skipped.
+        show_plot (bool): If True, calls plt.show() to display the plot. Default is True.
+    """
+
+    # 1. Flexible helper to convert time strings/objects into datetime
+    def parse_to_datetime(t_input):
+        if isinstance(t_input, datetime):
+            return t_input
+        if hasattr(t_input, 'datetime'):  # Handles pandas/astropy wrappers
+            return t_input.datetime
+        if isinstance(t_input, str):
+            t_str = t_input.strip('"\' \n\t')
+            for fmt in (
+                    "%Y-%m-%d %H:%M:%S.%f",
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d %H:%M",
+                    "%Y-%m-%dT%H:%M:%S.%f",
+                    "%Y-%m-%dT%H:%M:%S"
+            ):
+                try:
+                    return datetime.strptime(t_str, fmt)
+                except ValueError:
+                    continue
+        raise TypeError(f"Unsupported time format: {type(t_input)}")
+
+    # Parse target time
+    dt_target = parse_to_datetime(target_time)
+
+    # 2. Determine index offset ('diff') using ROW_DELTA
+    # Safely look for ROW_DELTA attribute (defaults to 500ms)
+    row_delta_ms = getattr(mC, "row_delta", getattr(mC, "row_delta_ms", getattr(mC, "ROW_DELTA", 500)))
+    step_seconds = row_delta_ms / 1000.0
+
+    # Calculate time delta and find the closest index row
+    time_difference = dt_target - mC.t_row0
+    diff = int(round(time_difference.total_seconds() / step_seconds))
+
+    # 3. Bounds check to protect against index errors
+    num_rows = mC.data.shape[0]
+    if diff < 0 or diff >= num_rows:
+        dt_end = mC.t_row0 + timedelta(seconds=(num_rows - 1) * step_seconds)
+        raise IndexError(
+            f"Target time {dt_target} is out of bounds for the dataset.\n"
+            f"Dataset range: {mC.t_row0} to {dt_end}.\n"
+            f"Calculated index row: {diff} (valid range: 0 to {num_rows - 1})."
+        )
+
+    # Calculate the exact timestamp being plotted
+    exact_plot_time = mC.t_row0 + timedelta(seconds=diff * step_seconds)
+    exact_time_str = exact_plot_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+    # 4. Load the wavelength grids
+    wlc, wld = load_WL_spectrum()
+
+    # 5. Build the plot
+    fig, ax = plt.subplots(figsize=(10, 5.5), dpi=120)
+
+    # Plot spectra
+    ax.plot(wlc, mC.data[diff], label=f"mC (Index: {diff})", color="#0984e3", alpha=0.85, lw=1.2)
+    ax.plot(wld, mD.data[diff], label=f"mD (Index: {diff})", color="#d63031", alpha=0.85, lw=1.2)
+
+    # Labels & Title
+    ax.set_xlabel("Wavelength (nm)", fontsize=11, fontweight="bold")
+    ax.set_ylabel("Intensity [data units]", fontsize=11, fontweight="bold")
+    ax.set_title(f"Spectra at {exact_time_str} (Target: {dt_target.strftime('%H:%M:%S')})",
+                 fontsize=12, fontweight="bold", pad=10)
+
+    ax.grid(True, which="both", linestyle=":", alpha=0.5)
+    ax.legend(loc="upper right", frameon=True, facecolor="white", framealpha=0.9)
+
+    plt.tight_layout()
+
+    # 6. Save handler
+    if save_filename:
+        plt.savefig(save_filename, dpi=300, bbox_inches="tight")
+        print(f"Spectrum plot saved successfully to: {save_filename}")
+
+    # 7. Show handler
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)  # Free figure memory if not showing
+
+
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def plot_flare_summary(goes_flare, gradient, timerange, h_alpha_data, time_array, intensity, save_name=None,
+                       plot_graph=True):
+    """
+    Plots a 4-panel synchronized timeline matching your working setup exactly.
+    Accepts full file paths for save_name to match the other save parameters seamlessly.
+    """
+    # Explicitly convert GOES time axis (Astropy Time) to standard plottable datetimes
+    goes_time_plot = goes_flare.time.datetime if hasattr(goes_flare.time, "datetime") else goes_flare.time
+
+    # Safe-unpack for Astropy Time objects/arrays passed into timerange and time_array
+    t_range_plot = timerange.datetime if hasattr(timerange, "datetime") else timerange
+    if isinstance(timerange, np.ndarray) and timerange.dtype == object and len(timerange) > 0:
+        if hasattr(timerange[0], "datetime"):
+            t_range_plot = [t.datetime for t in timerange]
+
+    t_array_plot = time_array.datetime if hasattr(time_array, "datetime") else time_array
+    if isinstance(time_array, np.ndarray) and time_array.dtype == object and len(time_array) > 0:
+        if hasattr(time_array[0], "datetime"):
+            t_array_plot = [t.datetime for t in time_array]
+
+    # Initialize a 4-panel shared X-axis layout
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+
+    # Panel 1: GOES Flux
+    ax1.plot(goes_time_plot, goes_flare.quantity("xrsb"), color="tab:blue")
+    ax1.set_ylabel("Flux (W m$^{-2}$)")
+    ax1.set_title("GOES Flare, Gradient, and H alpha")
+
+    # Panel 2: GOES Gradient (Using the explicit passed parameter paired with the converted time axis)
+    ax2.plot(goes_time_plot, gradient, color="tab:red")
+    ax2.set_ylabel("Gradient (W m$^{-2}$ s$^{-1}$)")
+
+    # Panel 3: Spectrometer H-alpha
+    ax3.plot(t_range_plot, h_alpha_data, color="tab:green")
+    ax3.set_ylabel("H alpha")
+
+    # Panel 4: SlitJaw Intensity Profile
+    ax4.plot(t_array_plot, intensity, color="tab:blue")
+    ax4.set_ylabel("Intensity")
+    ax4.set_xlabel("Time")
+
+    # Layout cleanup
+    fig.autofmt_xdate()
+    plt.tight_layout()
+
+    # Save tracking - dynamically checks and builds the containing directory from the path parameter
+    if save_name is not None:
+        dir_name = os.path.dirname(save_name)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        plt.savefig(save_name, bbox_inches='tight', dpi=300)
+
+    if plot_graph:
+        plt.show()
+    else:
+        plt.close(fig)

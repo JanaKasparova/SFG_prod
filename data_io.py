@@ -9,6 +9,11 @@ from typing import Tuple, Optional
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.widgets import Slider, Button
+from datetime import datetime, timedelta
+from astropy.visualization import time_support
+from sunpy import timeseries as ts
+from sunpy.net import Fido
+from sunpy.net import attrs as a
 from plotting import *
 from processing import *
 from analysis import *
@@ -35,8 +40,6 @@ def load_fits_img(path: str, logger=None):
         logger.debug(f"Shape of array: {data.shape}")
 
     return np.array(data)
-
-
 
 
 def load_fits(folder_path, logger=None):
@@ -68,14 +71,16 @@ def load_fits(folder_path, logger=None):
         logger.debug(f"Shape of stacked array: {images.shape}")
     return images
 
+
 from pathlib import Path
 from typing import List, Optional, Union
 
+
 def get_hdf_paths(
-    folder: str,
-    CD: bool = False,
-    return_path: bool = True,
-    logger=None
+        folder: str,
+        CD: bool = False,
+        return_path: bool = True,
+        logger=None
 ) -> List[Optional[Union[Path, str]]]:
     """
     Parameters
@@ -128,9 +133,7 @@ def load_hdf(hdf_dir, logger=None):
     return
 
 
-
-
-def load_hdf_light(hdf_dir: str, light_idx: int, logger=None) -> tuple[np.ndarray, np.ndarray]:
+def load_hdf_light(path: str, idx: int, logger=None) -> tuple[np.ndarray, np.ndarray]:
     """
     Load C and D light HDF files (spectrum) from a directory and return their data arrays.
 
@@ -145,43 +148,41 @@ def load_hdf_light(hdf_dir: str, light_idx: int, logger=None) -> tuple[np.ndarra
     -------
     (data_C, data_D) : tuple of np.ndarray
     """
-    msg = f"Reading HDF5 as C and D light from {hdf_dir}"
+    msg = f"Reading HDF5 as C and D light from {path}"
     if logger is not None:
         logger.info(msg)
 
-
     # Get [C, D] file paths as strings
     c_path, d_path = get_hdf_paths(
-        hdf_dir,
+        path,
         CD=True,
         return_path=False
     )
 
     if c_path is None or d_path is None:
         raise FileNotFoundError(
-            f"Could not find both C and D HDF files in {hdf_dir}"
+            f"Could not find both C and D HDF files in {path}"
         )
-    if type(light_idx) is not int:
-        raise TypeError(f"Invalid type(light_idx) = {type(light_idx)} != int")
+    if type(idx) is not int:
+        raise TypeError(f"Invalid type(idx) = {type(idx)} != int")
 
     # Load HDF files using Light
-    mC = Light(c_path, light_idx)
-    mD = Light(d_path, light_idx)
+    mC = Light(c_path, idx)
+    mD = Light(d_path, idx)
 
-    return mC.data, mD.data
+    return mC, mD
 
 
-def load_WL_spectrum():
-    wlc = np.load("./FICUS/useful_files/WL_range_C.npy")
-    wld = np.load("./FICUS/useful_files/WL_range_D.npy")
-    return wlc, wld
 
 def load_flats(flat_dir, logger=None):
-    print(f"  Reading flats from {flat_dir}")
+    "dummy function"
+    print(f"  Reading flats from {flat_dir} DUMMY")
     return {"dummy_flats": None}
 
+
 def load_darks(dark_dir, logger=None):
-    print(f"  Reading darks from {dark_dir}")
+    "dummy function"
+    print(f"  Reading darks from {dark_dir} DUMMY")
     return {"dummy_darks": None}
 
 
@@ -292,7 +293,6 @@ def select_roi_with_sliders(imgs: np.ndarray, vmax: float = 50000, cmap: str = "
     return [slider_xmin, slider_xmax, slider_ymin, slider_ymax, export_btn]
 
 
-
 def extract_astropy_time(filepath: str, logger=None) -> Time:
     """
     Extracts a timestamp from a SlitJaw filename string and converts
@@ -363,3 +363,177 @@ def compile_directory_timestamps(directory_path: str, logger=None) -> np.ndarray
         logger.info(f"Successfully compiled {len(time_array)} time objects into NumPy array.")
 
     return time_array
+
+
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+from sunpy import timeseries as ts
+from sunpy.net import Fido
+from sunpy.net import attrs as a
+
+
+def get_goes_flux(t_start, t_end, filename: str, satellite: int = 16, buffer_hours: float = 2.0):
+    """
+    Downloads, cleans, and plots GOES XRS flux data for a window around the
+    provided start and end times, saving the plot directly to a file.
+
+    Parameters:
+        t_start: Start of the event (datetime, str, or Astropy Time).
+        t_end: End of the event (datetime, str, or Astropy Time).
+        filename (str): The path/filename where the plot should be saved (e.g., 'goes_plot.png').
+        satellite (int): GOES satellite number (Default: 16).
+        buffer_hours (float): Hours of padding to query/plot before and after.
+
+    Returns:
+        tuple: (df_event, goes_event)
+            - df_event (pd.DataFrame): Truncated flux DataFrame for the exact event window.
+            - goes_event (sunpy.timeseries.TimeSeries): Truncated SunPy TimeSeries object.
+    """
+
+    # Flexible parser to convert inputs into standard Python datetimes
+    def parse_to_datetime(t_input):
+        if isinstance(t_input, datetime):
+            return t_input
+        if hasattr(t_input, 'datetime'):  # Handles pandas/astropy wrappers
+            return t_input.datetime
+        if isinstance(t_input, str):
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+                try:
+                    return datetime.strptime(t_input, fmt)
+                except ValueError:
+                    continue
+        raise TypeError(f"Unsupported time format: {type(t_input)}")
+
+    dt_start = parse_to_datetime(t_start)
+    dt_end = parse_to_datetime(t_end)
+
+    query_start = dt_start - timedelta(hours=buffer_hours)
+    query_end = dt_end + timedelta(hours=buffer_hours)
+
+    print(f"Searching for GOES-{satellite} data from {query_start} to {query_end}...")
+
+    # Search for data (high-resolution 1-second first)
+    search_result = Fido.search(
+        a.Time(query_start.isoformat(), query_end.isoformat()),
+        a.Instrument("XRS"),
+        a.goes.SatelliteNumber(satellite),
+        a.Resolution("flx1s")
+    )
+
+    if not search_result:
+        print("1s resolution unavailable, trying standard resolution...")
+        search_result = Fido.search(
+            a.Time(query_start.isoformat(), query_end.isoformat()),
+            a.Instrument("XRS"),
+            a.goes.SatelliteNumber(satellite)
+        )
+        if not search_result:
+            raise RuntimeError("Data for this time range were not found.")
+
+    downloaded_files = Fido.fetch(search_result, progress=True)
+
+    # Load and clean data quality flags
+    goes_ts = ts.TimeSeries(downloaded_files, concatenate=True)
+    df = goes_ts.to_dataframe()
+
+    if "xrsa_quality" in df.columns and "xrsb_quality" in df.columns:
+        df = df[(df["xrsa_quality"] == 0) & (df["xrsb_quality"] == 0)]
+        goes_ts = ts.TimeSeries(df, goes_ts.meta, goes_ts.units)
+
+    # Truncate for the plot (including buffer)
+    goes_buffered = goes_ts.truncate(query_start.isoformat(), query_end.isoformat())
+    df_buffered = goes_buffered.to_dataframe()
+
+    # Render and save the plot
+    fig, ax = plt.subplots(figsize=(11, 5.5), dpi=120)
+    ax.plot(df_buffered.index, df_buffered["xrsb"], label="XRS-B (1-8 Å)", color="#d63031", lw=1.6)
+    ax.plot(df_buffered.index, df_buffered["xrsa"], label="XRS-A (0.5-4 Å)", color="#0984e3", lw=1.2, alpha=0.7)
+
+    ax.axvspan(dt_start, dt_end, color="#fdcb6e", alpha=0.18, label="Observation Window")
+    ax.axvline(dt_start, color="#e17055", linestyle="--", lw=1.5)
+    ax.axvline(dt_end, color="#e17055", linestyle="--", lw=1.5)
+
+    ax.set_yscale("log")
+    ax.set_ylabel("Flux (W / m²)", fontsize=11, fontweight="bold")
+    ax.set_xlabel("Time (UTC)", fontsize=11, fontweight="bold")
+    ax.set_title(f"GOES-{satellite} Solar X-Ray Flux", fontsize=12, fontweight="bold", pad=12)
+    ax.grid(True, which="both", linestyle=":", alpha=0.4)
+    ax.legend(loc="upper left")
+
+    fig.autofmt_xdate()
+    plt.tight_layout()
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Plot saved to: {filename}")
+
+    # -------------------------------------------------------------
+    # PREPARE OUTPUTS (truncated precisely to the event duration)
+    # -------------------------------------------------------------
+    # 1. Clean flux DataFrame
+    df_event = df.loc[dt_start:dt_end]
+
+    # 2. Complete SunPy TimeSeries object (your GOES object)
+    goes_event = goes_ts.truncate(dt_start.isoformat(), dt_end.isoformat())
+
+    return df_event, goes_event
+
+
+import h5py
+import numpy as np
+
+
+def make_metadata_dict(path_to_hdf: str) -> list:
+    """
+    Recursively walks an HDF5 file to build a list of metadata dictionaries
+    containing attributes, names, shapes, and types for every group and dataset.
+
+    Parameters:
+        path_to_hdf (str): Path to the HDF5 file.
+
+    Returns:
+        list: A list of dicts containing the metadata for each node in the file.
+    """
+    metadata_list = []
+
+    def decode_value(val):
+        """Helper function to decode bytes and numpy byte strings into UTF-8 strings."""
+        if isinstance(val, bytes):
+            return val.decode("utf-8", errors="ignore")
+        if isinstance(val, np.ndarray):
+            if val.dtype.kind in ('S', 'U'):  # Byte or unicode strings in numpy arrays
+                return [v.decode("utf-8", errors="ignore") if isinstance(v, bytes) else v for v in val]
+            if val.size == 1:  # Flatten single-element numpy arrays
+                return val.item()
+            return val.tolist()
+        return val
+
+    def visitor_function(name, obj):
+        """Callback function executed for every group and dataset found in the HDF5 file."""
+        # Extract all custom attributes and decode them
+        metadata = {k: decode_value(v) for k, v in obj.attrs.items()}
+
+        # Add structural information
+        metadata["name"] = f"/{name}"  # Absolute path inside the HDF5 structure
+        metadata["type"] = "dataset" if isinstance(obj, h5py.Dataset) else "group"
+
+        # If it's a dataset, record its physical dimensions and data type
+        if isinstance(obj, h5py.Dataset):
+            metadata["shape"] = obj.shape
+            metadata["dtype"] = str(obj.dtype)
+
+        metadata_list.append(metadata)
+
+    # Open the file in read-only mode and recursively traverse the tree
+    with h5py.File(path_to_hdf, "r") as hdf_file:
+        # Manually parse the root group "/" which visititems skips
+        root_metadata = {k: decode_value(v) for k, v in hdf_file.attrs.items()}
+        root_metadata["name"] = "/"
+        root_metadata["type"] = "group"
+        metadata_list.append(root_metadata)
+
+        # Recursively visit every subdirectory and dataset
+        hdf_file.visititems(visitor_function)
+
+    return metadata_list
+
+
