@@ -9,6 +9,8 @@ from colorlog import ColoredFormatter
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.widgets import Slider, Button
+import gc
+import os
 
 
 def calibrate(fits_data, flat_data, dark_data, hdf_data):
@@ -907,5 +909,56 @@ def find_matching_hdf5_index(t_start, t_end, metadata: list) -> int:
     print("Error: Could not identify any suitable dataset index from metadata.")
     return None
 
+def process_fits_in_batches(file_paths, master_dark=None, batch_size=50, logger=None):
+    """
+    Processes FITS files in memory-efficient batches.
 
+    Returns
+    -------
+    master_frame : np.ndarray (2D)
+        The pixel-wise average of all frames across batches.
+    intensities : np.ndarray (1D)
+        Per-frame mean intensity values.
+    """
+    n_files = len(file_paths)
+    if n_files == 0:
+        raise ValueError("No FITS files found to process.")
+
+    # Load first image to determine shape
+    sample_img = fits.getdata(file_paths[0]).astype(np.float32)
+    sum_frame = np.zeros_like(sample_img, dtype=np.float64)
+    intensities = np.zeros(n_files, dtype=np.float32)
+
+    num_batches = int(np.ceil(n_files / batch_size))
+
+    for b in range(num_batches):
+        start_idx = b * batch_size
+        end_idx = min((b + 1) * batch_size, n_files)
+        batch_files = file_paths[start_idx:end_idx]
+
+        # Load current batch into RAM
+        batch_list = []
+        for fpath in batch_files:
+            img = fits.getdata(fpath).astype(np.float32)
+            if master_dark is not None:
+                img -= master_dark
+            batch_list.append(img)
+
+        batch_arr = np.stack(batch_list, axis=0)  # Shape: (batch_len, H, W)
+
+        # 1. Accumulate per-frame average intensity
+        intensities[start_idx:end_idx] = np.mean(batch_arr, axis=(1, 2))
+
+        # 2. Accumulate running sum for master frame calculation
+        sum_frame += np.sum(batch_arr, axis=0)
+
+        # Free memory immediately
+        del batch_list, batch_arr
+        gc.collect()
+
+        if logger:
+            logger.info(f"Processed batch {b + 1}/{num_batches} ({end_idx}/{n_files} files)")
+
+    master_frame = (sum_frame / n_files).astype(np.float32)
+    return master_frame, intensities
 

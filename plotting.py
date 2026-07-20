@@ -1618,11 +1618,12 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.patches import Circle
 
+
 def animate_eruption_region(
         imgs: np.ndarray,
-        xc: float,
-        yc: float,
-        r: float,
+        xc: float = None,
+        yc: float = None,
+        r: float = None,
         time_series=None,
         fps: int = 10,
         vmax: float = 2.0,
@@ -1642,8 +1643,11 @@ def animate_eruption_region(
 
     # Initial frame layout setup
     im = ax.imshow(imgs[0], cmap='inferno', origin='lower', vmin=0, vmax=vmax)
-    circle = Circle((xc, yc), r, color='cyan', fill=False, linewidth=1.8, linestyle='--')
-    ax.add_patch(circle)
+
+    # Only draw the circle patch if circle arguments are explicitly provided
+    if xc is not None and yc is not None and r is not None:
+        circle = Circle((xc, yc), r, color='cyan', fill=False, linewidth=1.8, linestyle='--')
+        ax.add_patch(circle)
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label("Normalized Intensity", fontsize=10)

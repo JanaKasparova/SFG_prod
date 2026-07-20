@@ -76,6 +76,68 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 
+def get_fits_filepaths(folder_path):
+    """Returns a sorted list of FITS file paths in a given folder."""
+    if not os.path.exists(folder_path):
+        return []
+    valid_exts = ('.fits', '.fit', '.fts', '.FITS', '.FIT', '.FTS')
+    files = [
+        os.path.join(folder_path, f) for f in os.listdir(folder_path)
+        if f.endswith(valid_exts)
+    ]
+    return sorted(files)
+
+
+def load_fits_batch(file_paths: list[str]) -> np.ndarray:
+    """Load only a specific batch of FITS file paths into RAM."""
+    batch_data = []
+    for path in file_paths:
+        with fits.open(path) as hdul:
+            data = hdul[0].data
+            if data is not None:
+                batch_data.append(data.astype(np.float32))
+    return np.array(batch_data)
+
+
+def load_sampled_fits(folder_path: str, max_samples: int = 400, logger=None) -> np.ndarray:
+    """
+    Finds all FITS files in folder_path, uniformly samples up to max_samples frames,
+    and loads only those sampled frames into RAM.
+    """
+    fits_files = [
+        os.path.join(folder_path, f)
+        for f in os.listdir(folder_path)
+        if f.lower().endswith(('.fits', '.fit'))
+    ]
+    fits_files.sort()
+
+    total_files = len(fits_files)
+    if total_files == 0:
+        raise FileNotFoundError(f"No FITS files found in {folder_path}")
+
+    # Determine uniform sample indices
+    if total_files <= max_samples:
+        selected_paths = fits_files
+        if logger:
+            logger.info(f"📂 Total files ({total_files}) <= {max_samples}. Loading all frames for ROI selection.")
+    else:
+        indices = np.linspace(0, total_files - 1, max_samples, dtype=int)
+        selected_paths = [fits_files[idx] for idx in indices]
+        if logger:
+            logger.info(f"📊 Uniformly sampling {max_samples} frames out of {total_files} total FITS files.")
+
+    # Load only selected frames
+    sampled_images = []
+    for path in selected_paths:
+        with fits.open(path) as hdul:
+            data = hdul[0].data
+            if data is not None:
+                sampled_images.append(data.astype(np.float32))
+
+    return np.array(sampled_images)
+
+
+
 def get_hdf_paths(
         folder: str,
         CD: bool = False,
