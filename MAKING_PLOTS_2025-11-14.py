@@ -25,6 +25,7 @@ def get_calibrated_data(
         show_plots: bool = False,
         align_dark: bool = False,
         align_flat: bool = False,
+        max_allowable_shift: float = 50.0,
         logger=None
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -94,8 +95,14 @@ def get_calibrated_data(
     )
 
     # Crop calibration frames
-    cropped_flat = crop_images(master_flat, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax, logger=logger)
-    cropped_dark = crop_images(master_dark, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax, logger=logger)
+    cropped_flat = crop_images(master_flat,
+                               xmin=xmin+130, xmax=xmax+130,
+                               ymin=ymin+31, ymax=ymax+31,
+                               logger=logger)
+    cropped_dark = crop_images(master_dark,
+                               xmin=xmin, xmax=xmax,
+                               ymin=ymin, ymax=ymax,
+                               logger=logger)
 
     # Fetch file list instead of loading full 3D array into RAM
     fits_files = get_fits_filepaths(data_folder)
@@ -160,14 +167,20 @@ def get_calibrated_data(
             preview_cropped_raw = batch_cropped[:n_images_grid].copy()
 
         # 3. Dark correction
-        batch_dark_cor = correct_dark(batch_cropped, cropped_dark, align_dark=align_dark, batch_size=batch_size,
+        batch_dark_cor = correct_dark(batch_cropped,
+                                      cropped_dark,
+                                      align_dark=align_dark,
+                                      batch_size=batch_size,
                                       logger=logger)
 
         if i == 0:
             preview_dark_cor = batch_dark_cor[:n_images_grid].copy()
 
         # 4. Flat correction
-        batch_flat_cor = correct_flat(batch_dark_cor, cropped_flat, align_flat=align_flat, batch_size=batch_size,
+        batch_flat_cor = correct_flat(batch_dark_cor, cropped_flat,
+                                      align_flat=align_flat,
+                                      batch_size=batch_size,
+                                      max_allowable_shift=max_allowable_shift,
                                       logger=logger)
 
         # 5. Stream finished batch directly into disk-backed array
@@ -212,19 +225,19 @@ if __name__ == "__main__":
     # CONFIGURATION PARAMETERS (All modifications go here!)
     # -----------------------------------------------------------------
     # --- Paths & Directories ---
-    FITS_DATA_FOLDER = "./2024-05-10/sun_area/SlitJaw"
+    FITS_DATA_FOLDER = "./sfg/2025-11-14-X4.1/sun_area/SlitJaw"
     FILE_MASTER_FLAT = "MASTER_SAVE/2024-05-10/master_flat.fits"
     FILE_MASTER_DARK = "MASTER_SAVE/2024-05-10/master_dark.fits"
     PARENT_CACHE = "CACHE_DATA"
-    DIR_PLOTS = "Plots/2024-05-10"  # Centralized plots folder
+    DIR_PLOTS = "Plots/2025-11-14"  # Centralized plots folder
 
     # --- Frame Trimming / Cut Settings ---
     CUT_FRONT = 0
     CUT_BACK = 0
 
     # --- Core Calibration Crop Bounds ---
-    CALIB_XMIN, CALIB_XMAX = 368, 1249
-    CALIB_YMIN, CALIB_YMAX = 304, 912
+    CALIB_XMIN, CALIB_XMAX = 322, 1335
+    CALIB_YMIN, CALIB_YMAX = 127, 912
     PROC_BATCH_SIZE = 100
     GRID_PREVIEW_IMG = 4
 
@@ -232,16 +245,16 @@ if __name__ == "__main__":
     DARK_FIGSIZE = (14, 10)
 
     # --- Reference Box Bounds & Metrics ---
-    REF_XMIN, REF_XMAX = 226, 343
-    REF_YMIN, REF_YMAX = 448, 558
+    REF_XMIN, REF_XMAX = 40, 201
+    REF_YMIN, REF_YMAX = 99, 248
     REF_NUM_PLOTS = 4
     REF_VMAX = 1.5
 
     # --- Eruption Crop Box Shifts & Parameters ---
-    ERUPTION_XMIN = 491
-    ERUPTION_XMAX = 626
-    ERUPTION_YMIN = 125
-    ERUPTION_YMAX = 261
+    ERUPTION_XMIN = 407
+    ERUPTION_XMAX = 542
+    ERUPTION_YMIN = 271
+    ERUPTION_YMAX = 405
 
     # --- Eruption Circular Mask Region ---
     ERUPTION_CENTER = (67, 67)  # (xC, yC)
@@ -255,7 +268,7 @@ if __name__ == "__main__":
     CONTOUR_MIN_SIGMA = 5
 
     # --- Global Plot Visibility Toggles ---
-    SHOW_DIAGNOSTIC_PLOTS = True
+    SHOW_DIAGNOSTIC_PLOTS = False
     CREATE_ANIMATION = False  # <--- Toggle to enable/disable eruption animation video
     ANIMATION_FPS = 10       # Video playback speed
     # -----------------------------------------------------------------
@@ -320,6 +333,7 @@ if __name__ == "__main__":
         show_plots=SHOW_DIAGNOSTIC_PLOTS,
         align_flat= True,
         align_dark= False,
+
     logger=logger
     )
 

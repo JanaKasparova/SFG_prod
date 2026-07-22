@@ -3,6 +3,8 @@ import numpy as np
 from typing import Any
 import os
 import matplotlib.pyplot as plt
+import numpy as np
+from scipy.ndimage import gaussian_filter1d, uniform_filter1d
 
 
 def average_numpy_array(
@@ -338,22 +340,51 @@ def compile_directory_timestamps(directory_path: str, logger=None) -> Time:
     return time_array
 
 
-import numpy as np
 
 
-def calculate_goes_gradient(goes_obj, channel: str = "xrsb") -> np.ndarray:
+def calculate_goes_gradient(
+    goes_obj,
+    channel: str = "xrsb",
+    smooth_window: float = 0,
+    smooth_method: str = "gaussian"
+) -> np.ndarray:
     """
-    Vypočíta časový gradient z originálneho SunPy TimeSeries objektu.
+    Vypočíta časový gradient z originálneho SunPy TimeSeries objektu s možnosťou vyhladenia toku.
 
     Parametre:
         goes_obj: SunPy TimeSeries objekt (vrátený z get_goes_flux)
         channel (str): Kanál pre výpočet gradientu ("xrsb" alebo "xrsa")
+        smooth_window (float/int): Úroveň vyhladenia (0 = bez vyhladenia):
+                                   - Pre "gaussian": hodnota sigma (štandardná odchýlka filtra v počte bodov, napr. 3-10).
+                                   - Pre "moving_avg" a "savgol": veľkosť okna v počte bodov (napr. 15 alebo 31).
+        smooth_method (str): Metóda vyhladenia:
+                             - "gaussian" (odporúčané, plynulý Gaussov filter)
+                             - "moving_avg" (kĺzavý priemer)
+                             - "savgol" (Savitzky-Golay filter)
 
     Návratová hodnota:
         np.ndarray: Jednorozmerné pole s vypočítaným gradientom v jednotkách W/(m²·s).
     """
     # Získanie hodnôt toku z objektu
-    flux = goes_obj.quantity(channel).value
+    flux = goes_obj.quantity(channel).value.copy()
+
+    # Vyhladenie toku pred výpočtom gradientu (potláča šum pred deriváciou)
+    if smooth_window > 0:
+        if smooth_method == "gaussian":
+            flux = gaussian_filter1d(flux, sigma=smooth_window)
+        elif smooth_method == "moving_avg":
+            flux = uniform_filter1d(flux, size=int(smooth_window))
+        elif smooth_method == "savgol":
+            from scipy.signal import savgol_filter
+            window_length = int(smooth_window)
+            # Savitzky-Golay vyžaduje nepárne číslo okna > polyorder
+            if window_length % 2 == 0:
+                window_length += 1
+            if window_length < 5:
+                window_length = 5
+            flux = savgol_filter(flux, window_length=window_length, polyorder=2)
+        else:
+            raise ValueError(f"Neznáma metóda vyhladenia: '{smooth_method}'. Použite 'gaussian', 'moving_avg' alebo 'savgol'.")
 
     # Získanie časovej osi z Astropy Time (ktorá je vnútri objektu) a prepočet na sekundy
     times = goes_obj.time
@@ -438,9 +469,9 @@ def slice_and_calculate_h_alpha(light_obj, t_start, t_end, center_idx: int = 137
     h_alpha_raw = light_obj.data[start_idx:end_idx, start_col:end_col]
 
     # Calculate integrated (summed) intensity across the spectral line for each time step
-    h_alpha_integrated = np.sum(h_alpha_raw, axis=1)
+    h_alpha_integrated = np.mean(h_alpha_raw, axis=1)
 
-    return timerange, h_alpha_integrated
+    return timerange, h_alpha_integrated / h_alpha_integrated[5]
 
 
 def sum_circle_values(images_array,

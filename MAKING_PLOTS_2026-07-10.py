@@ -212,39 +212,41 @@ if __name__ == "__main__":
     # CONFIGURATION PARAMETERS (All modifications go here!)
     # -----------------------------------------------------------------
     # --- Paths & Directories ---
-    FITS_DATA_FOLDER = "./2024-05-10/sun_area/SlitJaw"
-    FILE_MASTER_FLAT = "MASTER_SAVE/2024-05-10/master_flat.fits"
-    FILE_MASTER_DARK = "MASTER_SAVE/2024-05-10/master_dark.fits"
+    FITS_DATA_FOLDER = "sfg/2026-07-10-C6.0/sun_area/SlitJaw"
+    FILE_MASTER_FLAT = "MASTER_SAVE/2026-07-10/master_flat.fits"
+    FILE_MASTER_DARK = "MASTER_SAVE/2026-07-10/master_dark.fits"
     PARENT_CACHE = "CACHE_DATA"
-    DIR_PLOTS = "Plots/2024-05-10"  # Centralized plots folder
+    DIR_PLOTS = "Plots/2026-07-10"  # Centralized plots folder
 
     # --- Frame Trimming / Cut Settings ---
     CUT_FRONT = 0
     CUT_BACK = 0
 
-    # --- Core Calibration Crop Bounds ---
-    CALIB_XMIN, CALIB_XMAX = 368, 1249
-    CALIB_YMIN, CALIB_YMAX = 304, 912
+    # processing of the images
     PROC_BATCH_SIZE = 100
     GRID_PREVIEW_IMG = 4
+    REF_NUM_PLOTS = 4
+    REF_VMAX = 1.5
 
     # --- Dark Frame Analysis Setup ---
     DARK_FIGSIZE = (14, 10)
 
+    # --- Core Calibration Crop Bounds ---
+    CALIB_XMIN, CALIB_XMAX = 249, 1094
+    CALIB_YMIN, CALIB_YMAX = 115, 897
+
     # --- Reference Box Bounds & Metrics ---
-    REF_XMIN, REF_XMAX = 226, 343
-    REF_YMIN, REF_YMAX = 448, 558
-    REF_NUM_PLOTS = 4
-    REF_VMAX = 1.5
+    REF_XMIN, REF_XMAX = 55, 214
+    REF_YMIN, REF_YMAX = 108, 259
 
     # --- Eruption Crop Box Shifts & Parameters ---
-    ERUPTION_XMIN = 491
-    ERUPTION_XMAX = 626
-    ERUPTION_YMIN = 125
-    ERUPTION_YMAX = 261
+    ERUPTION_XMIN = 488
+    ERUPTION_XMAX = 619
+    ERUPTION_YMIN = 261
+    ERUPTION_YMAX = 391
 
     # --- Eruption Circular Mask Region ---
-    ERUPTION_CENTER = (67, 67)  # (xC, yC)
+    ERUPTION_CENTER = (65, 66)  # (xC, yC)
     ERUPTION_RADIUS = 53  # R
 
     # --- Downstream Analytics Fine-Tuning ---
@@ -255,7 +257,7 @@ if __name__ == "__main__":
     CONTOUR_MIN_SIGMA = 5
 
     # --- Global Plot Visibility Toggles ---
-    SHOW_DIAGNOSTIC_PLOTS = True
+    SHOW_DIAGNOSTIC_PLOTS = False
     CREATE_ANIMATION = False  # <--- Toggle to enable/disable eruption animation video
     ANIMATION_FPS = 10       # Video playback speed
     # -----------------------------------------------------------------
@@ -480,6 +482,13 @@ if __name__ == "__main__":
         sigma_level=ERUPTION_SIGMA_LEVEL,
         logger=logger
     )
+
+    # ---- SAVE TO CACHE (.npy) ----
+    cache_save_path = os.path.join(DIR_CACHE, "normalized_erupting_pixels.npy")
+    np.save(cache_save_path, erupting_ratios)
+
+    if logger:
+        logger.info(f"Cached normalized erupting pixels to {cache_save_path}")
 
     plot_single_series(
         data=erupting_ratios,

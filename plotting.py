@@ -1457,16 +1457,19 @@ def load_WL_spectrum():
     return wlc, wld
 
 
+from datetime import datetime, timedelta
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+from datetime import datetime, timedelta
+import numpy as np
+import matplotlib.pyplot as plt
+
 def plot_spectrum_at_time(mC, mD, target_time, save_filename: str = None, show_plot: bool = True):
     """
     Plots the spectrum from spectrometers C and D at a specified target time.
-
-    Parameters:
-        mC: The Light object for spectrometer C (loaded via load_hdf_light).
-        mD: The Light object for spectrometer D (loaded via load_hdf_light).
-        target_time: The timestamp to plot (datetime object or parsable string).
-        save_filename (str, optional): Filepath to save the figure. If None, saving is skipped.
-        show_plot (bool): If True, calls plt.show() to display the plot. Default is True.
+    Safely ignores empty NumPy arrays, zero arrays, or missing Light objects.
     """
 
     # 1. Flexible helper to convert time strings/objects into datetime
@@ -1493,38 +1496,103 @@ def plot_spectrum_at_time(mC, mD, target_time, save_filename: str = None, show_p
     # Parse target time
     dt_target = parse_to_datetime(target_time)
 
-    # 2. Determine index offset ('diff') using ROW_DELTA
-    # Safely look for ROW_DELTA attribute (defaults to 500ms)
-    row_delta_ms = getattr(mC, "row_delta", getattr(mC, "row_delta_ms", getattr(mC, "ROW_DELTA", 500)))
-    step_seconds = row_delta_ms / 1000.0
-
-    # Calculate time delta and find the closest index row
-    time_difference = dt_target - mC.t_row0
-    diff = int(round(time_difference.total_seconds() / step_seconds))
-
-    # 3. Bounds check to protect against index errors
-    num_rows = mC.data.shape[0]
-    if diff < 0 or diff >= num_rows:
-        dt_end = mC.t_row0 + timedelta(seconds=(num_rows - 1) * step_seconds)
-        raise IndexError(
-            f"Target time {dt_target} is out of bounds for the dataset.\n"
-            f"Dataset range: {mC.t_row0} to {dt_end}.\n"
-            f"Calculated index row: {diff} (valid range: 0 to {num_rows - 1})."
-        )
-
-    # Calculate the exact timestamp being plotted
-    exact_plot_time = mC.t_row0 + timedelta(seconds=diff * step_seconds)
-    exact_time_str = exact_plot_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-
-    # 4. Load the wavelength grids
+    # 2. Load wavelength grids
     wlc, wld = load_WL_spectrum()
+    len_wlc = len(wlc) if wlc is not None else 3840
+    len_wld = len(wld) if wld is not None else 3840
 
-    # 5. Build the plot
+    # Helper to check if an object is a valid, non-empty Light object
+    def is_valid_light(obj):
+        if obj is None or not hasattr(obj, 't_row0'):
+            return False
+        # Retrieve actual array without triggering np.ndarray.data memoryview
+        data = getattr(obj, 'data', None) if not isinstance(obj, np.ndarray) else obj
+        if data is None or not hasattr(data, 'size') or data.size == 0:
+            return False
+        return True
+
+    # Helper to get frame count along time axis
+    def get_time_length(obj):
+        if not is_valid_light(obj):
+            return 0
+        data = getattr(obj, 'data', obj)
+        shape = data.shape
+        if len(shape) == 1:
+            return shape[0]
+        # Check 2D orientation
+        return shape[1] if shape[0] in (len_wlc, len_wld) else shape[0]
+
+    # 3. Identify valid Light object for time indexing
+    light_obj = mC if is_valid_light(mC) else (mD if is_valid_light(mD) else None)
+
+    # 4. Calculate target row index ('diff')
+    if light_obj is not None:
+        row_delta_ms = getattr(light_obj, "row_delta", getattr(light_obj, "row_delta_ms", getattr(light_obj, "ROW_DELTA", 500)))
+        step_seconds = row_delta_ms / 1000.0
+
+        time_difference = dt_target - light_obj.t_row0
+        diff = int(round(time_difference.total_seconds() / step_seconds))
+
+        num_rows = get_time_length(light_obj)
+        if diff < 0 or diff >= num_rows:
+            dt_end = light_obj.t_row0 + timedelta(seconds=(num_rows - 1) * step_seconds)
+            raise IndexError(
+                f"Target time {dt_target} is out of bounds for the dataset.\n"
+                f"Dataset range: {light_obj.t_row0} to {dt_end}.\n"
+                f"Calculated index row: {diff} (valid time range: 0 to {num_rows - 1})."
+            )
+
+        exact_plot_time = light_obj.t_row0 + timedelta(seconds=diff * step_seconds)
+        exact_time_str = exact_plot_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    else:
+        diff = 0
+        exact_time_str = dt_target.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 5. Extract 1D spectrum slice safely
+    def extract_spectrum(obj, row_idx, target_wl_len):
+        if obj is None:
+            return None
+
+        # Avoid accessing obj.data if obj is already a raw np.ndarray
+        if isinstance(obj, np.ndarray):
+            data = obj
+        else:
+            data = getattr(obj, 'data', None)
+
+        # Ignore empty arrays or invalid objects
+        if data is None or not hasattr(data, 'size') or data.size == 0 or np.all(data == 0):
+            return None
+
+        try:
+            if data.ndim == 1:
+                y_data = data
+            elif data.ndim == 2:
+                if data.shape[0] == target_wl_len:
+                    y_data = data[:, row_idx] if row_idx < data.shape[1] else None
+                else:
+                    y_data = data[row_idx, :] if row_idx < data.shape[0] else None
+            else:
+                return None
+        except (IndexError, TypeError):
+            return None
+
+        if y_data is None or y_data.size == 0 or np.all(y_data == 0):
+            return None
+
+        return np.asarray(y_data).squeeze()
+
+    y_C = extract_spectrum(mC, diff, len_wlc)
+    y_D = extract_spectrum(mD, diff, len_wld)
+
+    # 6. Build the plot
     fig, ax = plt.subplots(figsize=(10, 5.5), dpi=120)
 
-    # Plot spectra
-    ax.plot(wlc, mC.data[diff], label=f"mC (Index: {diff})", color="#0984e3", alpha=0.85, lw=1.2)
-    ax.plot(wld, mD.data[diff], label=f"mD (Index: {diff})", color="#d63031", alpha=0.85, lw=1.2)
+    # Only plot active non-empty datasets
+    if y_C is not None:
+        ax.plot(wlc, y_C, label=f"mC (Index: {diff})", color="#0984e3", alpha=0.85, lw=1.2)
+
+    if y_D is not None:
+        ax.plot(wld, y_D, label=f"mD (Index: {diff})", color="#d63031", alpha=0.85, lw=1.2)
 
     # Labels & Title
     ax.set_xlabel("Wavelength (nm)", fontsize=11, fontweight="bold")
@@ -1533,34 +1601,63 @@ def plot_spectrum_at_time(mC, mD, target_time, save_filename: str = None, show_p
                  fontsize=12, fontweight="bold", pad=10)
 
     ax.grid(True, which="both", linestyle=":", alpha=0.5)
-    ax.legend(loc="upper right", frameon=True, facecolor="white", framealpha=0.9)
+
+    if y_C is not None or y_D is not None:
+        ax.legend(loc="upper right", frameon=True, facecolor="white", framealpha=0.9)
 
     plt.tight_layout()
 
-    # 6. Save handler
+    # 7. Save handler
     if save_filename:
         plt.savefig(save_filename, dpi=300, bbox_inches="tight")
         print(f"Spectrum plot saved successfully to: {save_filename}")
 
-    # 7. Show handler
+    # 8. Show handler
     if show_plot:
         plt.show()
     else:
-        plt.close(fig)  # Free figure memory if not showing
+        plt.close(fig)
 
 
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
-def plot_flare_summary(goes_flare, gradient, time_series, h_alpha_data, time_array, intensity,
-                       save_name=None, plot_graph=True, num_ticks=None):
+
+def plot_flare_summary(
+        goes_flare,
+        gradient,
+        time_series,
+        h_alpha_data,
+        time_array,
+        intensity,
+        h_alpha_continuum=None,
+        erupting_ratios=None,
+        save_name=None,
+        plot_graph=True,
+        num_ticks=None
+):
     """
-    Plots a 4-panel synchronized timeline matching your working setup exactly.
-    Accepts full file paths for save_name to match the other save parameters seamlessly.
-    Includes an optional 'num_ticks' parameter to control x-axis tick density.
+    Plots a synchronized multi-panel timeline of solar flare diagnostics.
+
+    Parameters:
+        goes_flare: SunPy TimeSeries object or similar GOES data.
+        gradient (np.ndarray): Calculated GOES flux gradient array.
+        time_series: Time axis for H-alpha data (Astropy Time or datetime array).
+        h_alpha_data (np.ndarray): H-alpha core intensity time series.
+        time_array: Time axis for SlitJaw data (Astropy Time or datetime array).
+        intensity (np.ndarray): SlitJaw normalized intensity time series.
+        h_alpha_continuum (np.ndarray, optional): H-alpha continuum intensity time series.
+        erupting_ratios (np.ndarray, optional): Active eruption pixel ratio array (from cache).
+        save_name (str, optional): Filepath to save the plot figure.
+        plot_graph (bool): If True, calls plt.show(). Default is True.
+        num_ticks (int, optional): Max number of ticks on the x-axis.
     """
-    # Explicitly convert GOES time axis (Astropy Time) to standard plottable datetimes
+    # 1. Convert GOES time axis to datetime
     goes_time_plot = goes_flare.time.datetime if hasattr(goes_flare.time, "datetime") else goes_flare.time
 
-    # Safe-unpack for Astropy Time objects/arrays passed into timerange and time_array
+    # 2. Convert H-alpha & SlitJaw time axes to datetime
     t_range_plot = time_series.datetime if hasattr(time_series, "datetime") else time_series
     if isinstance(time_series, np.ndarray) and time_series.dtype == object and len(time_series) > 0:
         if hasattr(time_series[0], "datetime"):
@@ -1571,42 +1668,89 @@ def plot_flare_summary(goes_flare, gradient, time_series, h_alpha_data, time_arr
         if hasattr(time_array[0], "datetime"):
             t_array_plot = [t.datetime for t in time_array]
 
-    # Initialize a 4-panel shared X-axis layout
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+    # 3. Dynamic layout setup: 4 panels if eruption data exists, 3 otherwise
+    has_eruption = erupting_ratios is not None
+    n_rows = 4 if has_eruption else 3
 
-    # Panel 1: GOES Flux
-    ax1.plot(goes_time_plot, goes_flare.quantity("xrsb"), color="tab:blue")
-    ax1.set_ylabel("Flux (W m$^{-2}$)")
-    ax1.set_title("GOES Flare, Gradient, and H alpha")
+    fig, axes = plt.subplots(n_rows, 1, figsize=(10, 2.7 * n_rows), sharex=True)
 
-    # Panel 2: GOES Gradient (Using the explicit passed parameter paired with the converted time axis)
-    ax2.plot(goes_time_plot, gradient, color="tab:red")
-    ax2.set_ylabel("Gradient (W m$^{-2}$ s$^{-1}$)")
+    # -------------------------------------------------------------------------
+    # PANEL 1: GOES Flux (Left Y) & Gradient (Right Y) — Both Log Scale
+    # -------------------------------------------------------------------------
+    ax1_flux = axes[0]
+    ax1_grad = ax1_flux.twinx()
 
-    # Panel 3: Spectrometer H-alpha
-    ax3.plot(t_range_plot, h_alpha_data, color="tab:green")
-    ax3.set_ylabel("H alpha")
+    # Plot GOES Flux (Log)
+    line1 = ax1_flux.plot(goes_time_plot, goes_flare.quantity("xrsb"), color="tab:blue", label="GOES Flux (XRSB)")
+    ax1_flux.set_ylabel("Flux (W m$^{-2}$)", color="tab:blue", fontweight="bold")
+    ax1_flux.tick_params(axis='y', labelcolor="tab:blue")
+    ax1_flux.set_yscale("log")
 
-    # Panel 4: SlitJaw Intensity Profile
-    ax4.plot(t_array_plot, intensity, color="tab:blue")
-    ax4.set_ylabel("Intensity")
-    ax4.set_xlabel("Time")
+    # Plot Gradient (Log) - Mask <= 0 values to prevent log scale errors/warnings
+    grad_positive = np.where(gradient > 0, gradient, np.nan)
+    line2 = ax1_grad.plot(goes_time_plot, grad_positive, color="tab:red", linestyle="--", alpha=0.85,
+                          label="Flux Gradient")
+    ax1_grad.set_ylabel("Gradient (W m$^{-2}$ s$^{-1}$)", color="tab:red", fontweight="bold")
+    ax1_grad.tick_params(axis='y', labelcolor="tab:red")
+    ax1_grad.set_yscale("linear")
 
-    # Dynamic x-axis tick adjustment across the shared subplots
+    # Combined Legend for Twin Axes
+    lines = line1 + line2
+    labels = [l.get_label() for l in lines]
+    ax1_flux.legend(lines, labels, loc="upper left", frameon=True, facecolor="white", framealpha=0.85)
+    ax1_flux.set_title("Solar Flare Multi-Instrument Summary Profile", fontsize=12, fontweight="bold")
+    ax1_flux.grid(True, which="both", linestyle=":", alpha=0.4)
+
+    # -------------------------------------------------------------------------
+    # PANEL 2: H-alpha Core & Continuum
+    # -------------------------------------------------------------------------
+    ax2 = axes[1]
+    ax2.plot(t_range_plot, h_alpha_data, color="tab:green", label="H-alpha Core")
+    if h_alpha_continuum is not None:
+        ax2.plot(t_range_plot, h_alpha_continuum, color="tab:orange", linestyle="-.", label="H-alpha Continuum")
+
+    ax2.set_ylabel("H-alpha Intensity", fontweight="bold")
+    ax2.legend(loc="upper left", frameon=True, facecolor="white", framealpha=0.85)
+    ax2.grid(True, which="both", linestyle=":", alpha=0.4)
+
+    # -------------------------------------------------------------------------
+    # PANEL 3: SlitJaw Intensity Profile
+    # -------------------------------------------------------------------------
+    ax3 = axes[2]
+    ax3.plot(t_array_plot, intensity, color="#0984e3", label="Intensity Inside Circle")
+    ax3.set_ylabel("Relative Intensity", fontweight="bold")
+    ax3.legend(loc="upper left", frameon=True, facecolor="white", framealpha=0.85)
+    ax3.grid(True, which="both", linestyle=":", alpha=0.4)
+
+    # -------------------------------------------------------------------------
+    # PANEL 4 (Optional): Eruption Active Pixel Ratio (From Cache)
+    # -------------------------------------------------------------------------
+    if has_eruption:
+        ax4 = axes[3]
+        ax4.plot(t_array_plot, erupting_ratios, color="tab:purple", label="Active Eruption Area Ratio")
+        ax4.set_ylabel("Eruption Pixel Ratio", fontweight="bold")
+        ax4.legend(loc="upper left", frameon=True, facecolor="white", framealpha=0.85)
+        ax4.grid(True, which="both", linestyle=":", alpha=0.4)
+
+    # Bottom Axis Formatting
+    bottom_ax = axes[-1]
+    bottom_ax.set_xlabel("Time (UTC)", fontweight="bold")
+
     if num_ticks is not None:
-        ax4.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=num_ticks))
+        bottom_ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=num_ticks))
 
-    # Layout cleanup
+    # Layout adjustment
     fig.autofmt_xdate()
     plt.tight_layout()
 
-    # Save tracking - dynamically checks and builds the containing directory from the path parameter
+    # Save Handler
     if save_name is not None:
         dir_name = os.path.dirname(save_name)
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
         plt.savefig(save_name, bbox_inches='tight', dpi=300)
 
+    # Display Handler
     if plot_graph:
         plt.show()
     else:
@@ -1618,7 +1762,6 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.patches import Circle
 
-
 def animate_eruption_region(
         imgs: np.ndarray,
         xc: float = None,
@@ -1628,16 +1771,23 @@ def animate_eruption_region(
         fps: int = 10,
         vmax: float = 2.0,
         save_name: str = "eruption_animation.mp4",
+        dpi: int = 200,
+        bitrate: int = 4000,
+        extra_args: list = None,
         logger=None
 ):
     """
-    Generates an animated video/GIF from the cropped eruption stack.
-    Overlays the circular analysis region and dynamic timestamp per frame.
+    Generates an animated video/GIF from the cropped eruption stack with high-quality rendering.
+    Overlays the circular analysis region (if provided) and dynamic timestamp per frame.
     """
     if logger:
         logger.info(f"🎥 Generating eruption animation for {len(imgs)} frames...")
     else:
         print(f"🎥 Generating eruption animation for {len(imgs)} frames...")
+
+    # Calculate robust auto-vmax if unspecified to prevent dynamic flickering or clipping
+    if vmax is None:
+        vmax = float(np.nanpercentile(imgs, 99.8))
 
     fig, ax = plt.subplots(figsize=(6, 6))
 
@@ -1673,12 +1823,23 @@ def animate_eruption_region(
     if dir_name:
         os.makedirs(dir_name, exist_ok=True)
 
+    # Default extra_args for high quality FFmpeg encoding if none provided
+    if extra_args is None:
+        extra_args = ['-vcodec', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p']
+
     # Save animation (Attempts MP4 with ffmpeg, falls back to Pillow GIF)
     if save_name.endswith('.gif'):
-        anim.save(save_name, writer='pillow', fps=fps)
+        anim.save(save_name, writer='pillow', fps=fps, dpi=dpi)
     else:
         try:
-            anim.save(save_name, writer='ffmpeg', fps=fps, extra_args=['-vcodec', 'libx264'])
+            anim.save(
+                save_name,
+                writer='ffmpeg',
+                fps=fps,
+                dpi=dpi,
+                bitrate=bitrate,
+                extra_args=extra_args
+            )
         except Exception as e:
             gif_path = os.path.splitext(save_name)[0] + ".gif"
             msg = f"⚠️ FFmpeg writer failed/unavailable ({e}). Falling back to GIF format: {gif_path}"
@@ -1686,7 +1847,7 @@ def animate_eruption_region(
                 logger.warning(msg)
             else:
                 print(msg)
-            anim.save(gif_path, writer='pillow', fps=fps)
+            anim.save(gif_path, writer='pillow', fps=fps, dpi=dpi)
             save_name = gif_path
 
     plt.close(fig)
