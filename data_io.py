@@ -473,15 +473,21 @@ from sunpy.net import Fido, attrs as a
 from sunpy import timeseries as ts
 
 
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+from sunpy.net import Fido, attrs as a
+from sunpy import timeseries as ts
+
 def get_goes_flux(t_start, t_end, filename: str, satellite: int = 16, buffer_hours: float = 2.0):
     """
-    Downloads, cleans, categorizes, and plots GOES XRS flux data for a window
-    around provided start and end times, saving the plot directly to a file.
+    Downloads, cleans, and plots GOES XRS flux data for a window around the
+    provided start and end times, saving the plot directly to a file.
 
     Parameters:
         t_start: Start of the event (datetime, str, or Astropy Time).
         t_end: End of the event (datetime, str, or Astropy Time).
-        filename (str): The path/filename where the plot should be saved.
+        filename (str): The path/filename where the plot should be saved (e.g., 'goes_plot.png').
         satellite (int): GOES satellite number (Default: 16).
         buffer_hours (float): Hours of padding to query/plot before and after.
 
@@ -491,20 +497,20 @@ def get_goes_flux(t_start, t_end, filename: str, satellite: int = 16, buffer_hou
             - goes_event (sunpy.timeseries.TimeSeries): Truncated SunPy TimeSeries object.
     """
 
-    # Helper function to categorize peak flux based on SWPC NOAA standards
-    def classify_flare(peak_flux_w_m2):
-        if peak_flux_w_m2 is None or np.isnan(peak_flux_w_m2) or peak_flux_w_m2 <= 0:
+    # Helper function to convert peak flux to flare class name
+    def get_flare_class(peak_flux):
+        if peak_flux is None or np.isnan(peak_flux) or peak_flux <= 0:
             return "Unknown"
-        if peak_flux_w_m2 < 1e-7:
-            return f"A{peak_flux_w_m2 / 1e-8:.1f}"
-        elif peak_flux_w_m2 < 1e-6:
-            return f"B{peak_flux_w_m2 / 1e-7:.1f}"
-        elif peak_flux_w_m2 < 1e-5:
-            return f"C{peak_flux_w_m2 / 1e-6:.1f}"
-        elif peak_flux_w_m2 < 1e-4:
-            return f"M{peak_flux_w_m2 / 1e-5:.1f}"
+        if peak_flux < 1e-7:
+            return f"A{peak_flux / 1e-8:.1f}"
+        elif peak_flux < 1e-6:
+            return f"B{peak_flux / 1e-7:.1f}"
+        elif peak_flux < 1e-5:
+            return f"C{peak_flux / 1e-6:.1f}"
+        elif peak_flux < 1e-4:
+            return f"M{peak_flux / 1e-5:.1f}"
         else:
-            return f"X{peak_flux_w_m2 / 1e-4:.1f}"
+            return f"X{peak_flux / 1e-4:.1f}"
 
     # Flexible parser to convert inputs into standard Python datetimes
     def parse_to_datetime(t_input):
@@ -548,41 +554,27 @@ def get_goes_flux(t_start, t_end, filename: str, satellite: int = 16, buffer_hou
 
     downloaded_files = Fido.fetch(search_result, progress=True)
 
-    # Load and clean data quality flags
+    # Load and clean data quality flags safely
     goes_ts = ts.TimeSeries(downloaded_files, concatenate=True)
     df = goes_ts.to_dataframe()
 
     if "xrsa_quality" in df.columns and "xrsb_quality" in df.columns:
         df = df[(df["xrsa_quality"] == 0) & (df["xrsb_quality"] == 0)]
-        goes_ts = ts.TimeSeries(df, goes_ts.meta, goes_ts.units)
+        goes_ts._data = df  # Clean update to internal data without breaking SunPy
 
-    # -------------------------------------------------------------
-    # EXTRACT EVENT WINDOW DATA & CALCULATE FLARE CATEGORY
-    # -------------------------------------------------------------
-    df_event = df.loc[dt_start:dt_end]
-    goes_event = goes_ts.truncate(dt_start.isoformat(), dt_end.isoformat())
-
-    if "xrsb" in df_event.columns and not df_event["xrsb"].empty:
-        peak_xrsb = df_event["xrsb"].max()
-        flare_category = classify_flare(peak_xrsb)
-    else:
-        peak_xrsb = 0.0
-        flare_category = "N/A"
-
-    print(f"--> Event Peak XRS-B Flux: {peak_xrsb:.2e} W/m² | Categorized Flare Class: {flare_category}")
-
-    # Attach class metadata directly to the SunPy TimeSeries object
-    if hasattr(goes_event, 'meta'):
-        goes_event.meta['flare_class'] = flare_category
-        goes_event.meta['peak_xrsb'] = peak_xrsb
-
-    # Truncate for plotting (including buffer)
+    # Truncate for the plot (including buffer)
     goes_buffered = goes_ts.truncate(query_start.isoformat(), query_end.isoformat())
     df_buffered = goes_buffered.to_dataframe()
 
-    # -------------------------------------------------------------
-    # RENDER PLOT WITH NOAA FLARE CLASS THRESHOLDS
-    # -------------------------------------------------------------
+    # Determine flare class name in the event interval
+    df_event_temp = df.loc[dt_start:dt_end]
+    if "xrsb" in df_event_temp.columns and not df_event_temp["xrsb"].empty:
+        peak_xrsb = df_event_temp["xrsb"].max()
+        flare_class = get_flare_class(peak_xrsb)
+    else:
+        flare_class = "N/A"
+
+    # Render and save the plot
     fig, ax = plt.subplots(figsize=(11, 5.5), dpi=120)
     ax.plot(df_buffered.index, df_buffered["xrsb"], label="XRS-B (1-8 Å)", color="#d63031", lw=1.6)
     ax.plot(df_buffered.index, df_buffered["xrsa"], label="XRS-A (0.5-4 Å)", color="#0984e3", lw=1.2, alpha=0.7)
@@ -591,29 +583,10 @@ def get_goes_flux(t_start, t_end, filename: str, satellite: int = 16, buffer_hou
     ax.axvline(dt_start, color="#e17055", linestyle="--", lw=1.5)
     ax.axvline(dt_end, color="#e17055", linestyle="--", lw=1.5)
 
-    # NOAA Class Reference Horizontal Threshold Lines
-    flare_classes = {
-        "A": 1e-8,
-        "B": 1e-7,
-        "C": 1e-6,
-        "M": 1e-5,
-        "X": 1e-4
-    }
-
-    y_min_data = min(df_buffered["xrsb"].min(), df_buffered["xrsa"].min())
-    y_max_data = max(df_buffered["xrsb"].max(), df_buffered["xrsa"].max())
-
-    for cls_name, cls_val in flare_classes.items():
-        if y_min_data * 0.5 <= cls_val <= y_max_data * 2.0:
-            ax.axhline(cls_val, color="gray", linestyle=":", alpha=0.35, lw=0.9)
-            ax.text(df_buffered.index[0], cls_val * 1.15, f" Class {cls_name}",
-                    color="gray", fontsize=8, fontweight="bold", alpha=0.7)
-
     ax.set_yscale("log")
     ax.set_ylabel("Flux (W / m²)", fontsize=11, fontweight="bold")
     ax.set_xlabel("Time (UTC)", fontsize=11, fontweight="bold")
-    ax.set_title(f"GOES-{satellite} Solar X-Ray Flux — Peak Class: {flare_category}", fontsize=12, fontweight="bold",
-                 pad=12)
+    ax.set_title(f"GOES-{satellite} Solar X-Ray Flux — Flare Class: {flare_class}", fontsize=12, fontweight="bold", pad=12)
     ax.grid(True, which="both", linestyle=":", alpha=0.4)
     ax.legend(loc="upper left")
 
@@ -622,6 +595,15 @@ def get_goes_flux(t_start, t_end, filename: str, satellite: int = 16, buffer_hou
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.close(fig)
     print(f"Plot saved to: {filename}")
+
+    # -------------------------------------------------------------
+    # PREPARE OUTPUTS (truncated precisely to the event duration)
+    # -------------------------------------------------------------
+    # 1. Clean flux DataFrame
+    df_event = df.loc[dt_start:dt_end]
+
+    # 2. Complete SunPy TimeSeries object (your GOES object)
+    goes_event = goes_ts.truncate(dt_start.isoformat(), dt_end.isoformat())
 
     return df_event, goes_event
 

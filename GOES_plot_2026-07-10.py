@@ -79,7 +79,7 @@ if __name__ == "__main__":
     SAVE_GOES_PLOT = os.path.join(DIR_PLOTS, "goes_flux_output.png")
     SAVE_SPECTRUM_PLOT = os.path.join(DIR_PLOTS, f"spectrum_at_{time_suffix}.png")
     SAVE_H_ALPHA_PLOT = os.path.join(DIR_PLOTS, "core_h_alpha.png")
-    SAVE_COTINUUM_PLOT = os.path.join(DIR_PLOTS, "continuum_h_alpha.png")
+    SAVE_CONTINUUM_PLOT = os.path.join(DIR_PLOTS, "continuum_h_alpha.png")
     SAVE_SUMMARY_NAME = os.path.join(DIR_PLOTS, "flare_summary_profile.png")
 
     # --- Diagnostic Region Plot Save Paths ---
@@ -87,12 +87,13 @@ if __name__ == "__main__":
     SAVE_DIAG_REF_CROP = os.path.join(DIR_PLOTS, f"diag_crop_reference_{time_suffix}")
     SAVE_DIAG_ERUP_SINGLE = os.path.join(DIR_PLOTS, f"diag_single_eruption_{time_suffix}")
     SAVE_DIAG_ERUP_CROP = os.path.join(DIR_PLOTS, f"diag_crop_eruption_{time_suffix}")
+    SAVE_REFERENCE_GOES = os.path.join(DIR_PLOTS, f"reference_goes_{time_suffix}")
 
     date_suffix = timestamps[0].datetime.strftime("%Y-%m-%d") if len(timestamps) > 0 else "0000-00-00"
     DIR_CACHE = os.path.join(PARENT_CACHE, date_suffix)
 
     # --- Plot Display Control Flags ---
-    SHOW_INTERMEDIATE_PLOTS = True
+    SHOW_INTERMEDIATE_PLOTS = False
     SHOW_FINAL_SUMMARY = True
     # -----------------------------------------------------------------
 
@@ -172,7 +173,7 @@ if __name__ == "__main__":
         num_ticks=15,  # Sets ~7 ticks on the x-axis
         xlabel="Time",
         ylabel="Continuum Intensity",
-        save_filename=SAVE_COTINUUM_PLOT,
+        save_filename=SAVE_CONTINUUM_PLOT,
         plot_graph=SHOW_INTERMEDIATE_PLOTS
     )
 
@@ -260,23 +261,46 @@ if __name__ == "__main__":
 
     # Combine batch outputs into unified 1D time series
     values = np.concatenate(values_list)
+    values = values/ values[0]
     reference_values = np.concatenate(reference_values_list)
+    reference_values = reference_values/reference_values[0]
 
     # Render background track stability check
     plot_single_series(
         data=reference_values,
         time_series=timestamps.datetime,
         num_ticks=15,  # Sets ~7 ticks on the x-axis
-        title="REFERENCE AREA INTENSITY",
+        title="REFERENCE AREA INTENSITY - GOES",
         xlabel="Time",
         ylabel="Intensity",
-        plot_graph=SHOW_INTERMEDIATE_PLOTS
+        plot_graph=SHOW_INTERMEDIATE_PLOTS,
+        save_name=SAVE_REFERENCE_GOES
     )
 
     # =====================================================================
     # STEP 6: NORMALIZE TRACKS AND SHOW MULTIPANEL CORRELATION OVERVIEW
     # =====================================================================
     intensity_fits = values / reference_values
+
+    # 2. Correct Core H-alpha using reference_values and timestamps
+    h_alpha_core_corrected = normalize_spectrum_by_reference(
+        spectrum_data=h_alpha_core,
+        spectrum_times=timerange,
+        reference_values=reference_values,
+        reference_times=timestamps
+    )
+
+    # 4. Correct Continuum H-alpha
+    h_alpha_continuum_corrected = normalize_spectrum_by_reference(
+        spectrum_data=h_alpha_continuum,
+        spectrum_times=timerange2,
+        reference_values=reference_values,
+        reference_times=timestamps
+    )
+
+
+
+
 
     # Load cached erupting pixels array
     normalized_erupting_pixels = load_cached_array(DIR_CACHE,
@@ -286,8 +310,8 @@ if __name__ == "__main__":
         goes_flare=goes_object,
         gradient=gradient_array,
         time_series=timerange,
-        h_alpha_data=h_alpha_core,
-        h_alpha_continuum=h_alpha_continuum,  # Pass continuum here
+        h_alpha_data=h_alpha_core_corrected,
+        h_alpha_continuum=h_alpha_continuum_corrected,  # Pass continuum here
         time_array=timestamps,
         intensity=intensity_fits,
         erupting_ratios=normalized_erupting_pixels,  # Pass cached array here

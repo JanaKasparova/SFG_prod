@@ -96,8 +96,8 @@ def get_calibrated_data(
 
     # Crop calibration frames
     cropped_flat = crop_images(master_flat,
-                               xmin=xmin+130, xmax=xmax+130,
-                               ymin=ymin+31, ymax=ymax+31,
+                               xmin=xmin + 130, xmax=xmax + 130,
+                               ymin=ymin + 31, ymax=ymax + 31,
                                logger=logger)
     cropped_dark = crop_images(master_dark,
                                xmin=xmin, xmax=xmax,
@@ -216,7 +216,6 @@ def get_calibrated_data(
     return flat_cor_mmap, cropped_dark
 
 
-
 # =====================================================================
 # GLOBAL PIPELINE RUNNER
 # =====================================================================
@@ -235,20 +234,22 @@ if __name__ == "__main__":
     CUT_FRONT = 0
     CUT_BACK = 0
 
-    # --- Core Calibration Crop Bounds ---
-    CALIB_XMIN, CALIB_XMAX = 322, 1335
-    CALIB_YMIN, CALIB_YMAX = 127, 912
+    # processing of the images
     PROC_BATCH_SIZE = 100
     GRID_PREVIEW_IMG = 4
+    REF_NUM_PLOTS = 4
+    REF_VMAX = 1.5
 
     # --- Dark Frame Analysis Setup ---
     DARK_FIGSIZE = (14, 10)
 
+    # --- Core Calibration Crop Bounds ---
+    CALIB_XMIN, CALIB_XMAX = 322, 1335
+    CALIB_YMIN, CALIB_YMAX = 127, 912
+
     # --- Reference Box Bounds & Metrics ---
     REF_XMIN, REF_XMAX = 40, 201
     REF_YMIN, REF_YMAX = 99, 248
-    REF_NUM_PLOTS = 4
-    REF_VMAX = 1.5
 
     # --- Eruption Crop Box Shifts & Parameters ---
     ERUPTION_XMIN = 407
@@ -270,7 +271,7 @@ if __name__ == "__main__":
     # --- Global Plot Visibility Toggles ---
     SHOW_DIAGNOSTIC_PLOTS = False
     CREATE_ANIMATION = False  # <--- Toggle to enable/disable eruption animation video
-    ANIMATION_FPS = 10       # Video playback speed
+    ANIMATION_FPS = 10  # Video playback speed
     # -----------------------------------------------------------------
 
     # Initialize logging ecosystem
@@ -331,10 +332,10 @@ if __name__ == "__main__":
         plots_dir=DIR_PLOTS,
         date_suffix=date_suffix,
         show_plots=SHOW_DIAGNOSTIC_PLOTS,
-        align_flat= True,
-        align_dark= False,
+        align_flat=True,
+        align_dark=False,
 
-    logger=logger
+        logger=logger
     )
 
     logger.info(f"Pipeline finished! Calibration Stack: {flat_cor.shape} | Cropped Dark: {cropped_dark.shape}")
@@ -348,7 +349,8 @@ if __name__ == "__main__":
         if plot_time_axis is not None:
             plot_time_axis = plot_time_axis[start_idx:end_idx]
         if logger:
-            logger.info(f"✂️ Scaled dataset: Cut {CUT_FRONT} from front, {CUT_BACK} from back. New Stack: {flat_cor.shape}")
+            logger.info(
+                f"✂️ Scaled dataset: Cut {CUT_FRONT} from front, {CUT_BACK} from back. New Stack: {flat_cor.shape}")
     else:
         if logger:
             logger.warning("⚠️ Cut parameters are larger than total frames available! Skipping cut.")
@@ -494,6 +496,14 @@ if __name__ == "__main__":
         sigma_level=ERUPTION_SIGMA_LEVEL,
         logger=logger
     )
+
+    # ---- SAVE TO CACHE (.npy) ----
+    cache_save_path = os.path.join(DIR_CACHE, "normalized_erupting_pixels.npy")
+    np.save(cache_save_path, erupting_ratios)
+
+    if logger:
+        logger.info(f"Cached normalized erupting pixels to {cache_save_path}")
+
 
     plot_single_series(
         data=erupting_ratios,

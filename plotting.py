@@ -1618,25 +1618,29 @@ def plot_spectrum_at_time(mC, mD, target_time, save_filename: str = None, show_p
     else:
         plt.close(fig)
 
-
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-
 def plot_flare_summary(
-        goes_flare,
-        gradient,
-        time_series,
-        h_alpha_data,
-        time_array,
-        intensity,
-        h_alpha_continuum=None,
-        erupting_ratios=None,
-        save_name=None,
-        plot_graph=True,
-        num_ticks=None
+    goes_flare,
+    gradient,
+    time_series,
+    h_alpha_data,
+    time_array,
+    intensity,
+    h_alpha_continuum=None,
+    erupting_ratios=None,
+    save_name=None,
+    plot_graph=True,
+    num_ticks=None,
+    y_limits=None,            # List of (min, max) tuples for panel rows: [(p1_min, p1_max), ...]
+    ylim_goes_flux=None,      # (min, max) or float max for Panel 1 GOES flux
+    ylim_gradient=None,       # (min, max) or float max for Panel 1 Gradient twin axis
+    ylim_halpha=None,         # (min, max) or float max for Panel 2 H-alpha
+    ylim_intensity=None,      # (min, max) or float max for Panel 3 SlitJaw intensity
+    ylim_eruption=None        # (min, max) or float max for Panel 4 Eruption ratio
 ):
     """
     Plots a synchronized multi-panel timeline of solar flare diagnostics.
@@ -1653,7 +1657,43 @@ def plot_flare_summary(
         save_name (str, optional): Filepath to save the plot figure.
         plot_graph (bool): If True, calls plt.show(). Default is True.
         num_ticks (int, optional): Max number of ticks on the x-axis.
+        y_limits (list/tuple, optional): List of (min, max) pairs for each panel row,
+                                         e.g., [(1e-6, 1e-4), (0, 2500), (0.8, 1.5), (0, 0.5)]
+        ylim_goes_flux (tuple/float, optional): Range tuple (ymin, ymax) or top float for Panel 1 GOES flux.
+        ylim_gradient (tuple/float, optional): Range tuple (ymin, ymax) or top float for Panel 1 Gradient.
+        ylim_halpha (tuple/float, optional): Range tuple (ymin, ymax) or top float for Panel 2 H-alpha.
+        ylim_intensity (tuple/float, optional): Range tuple (ymin, ymax) or top float for Panel 3 SlitJaw.
+        ylim_eruption (tuple/float, optional): Range tuple (ymin, ymax) or top float for Panel 4 Eruption area.
     """
+    # Helper function to apply (min, max) limits safely
+    def _apply_ylim(ax, lim):
+        if lim is None:
+            return
+        if isinstance(lim, (list, tuple)):
+            if len(lim) == 2:
+                ymin, ymax = lim
+                if ymin is not None and ymax is not None:
+                    ax.set_ylim(ymin, ymax)
+                elif ymin is not None:
+                    ax.set_ylim(bottom=ymin)
+                elif ymax is not None:
+                    ax.set_ylim(top=ymax)
+            elif len(lim) == 1 and lim[0] is not None:
+                ax.set_ylim(top=lim[0])
+        elif isinstance(lim, (int, float, np.number)):
+            ax.set_ylim(top=lim)
+
+    # Resolve list of pairs if provided via y_limits
+    if y_limits is not None:
+        if len(y_limits) > 0 and ylim_goes_flux is None:
+            ylim_goes_flux = y_limits[0]
+        if len(y_limits) > 1 and ylim_halpha is None:
+            ylim_halpha = y_limits[1]
+        if len(y_limits) > 2 and ylim_intensity is None:
+            ylim_intensity = y_limits[2]
+        if len(y_limits) > 3 and ylim_eruption is None:
+            ylim_eruption = y_limits[3]
+
     # 1. Convert GOES time axis to datetime
     goes_time_plot = goes_flare.time.datetime if hasattr(goes_flare.time, "datetime") else goes_flare.time
 
@@ -1675,21 +1715,20 @@ def plot_flare_summary(
     fig, axes = plt.subplots(n_rows, 1, figsize=(10, 2.7 * n_rows), sharex=True)
 
     # -------------------------------------------------------------------------
-    # PANEL 1: GOES Flux (Left Y) & Gradient (Right Y) — Both Log Scale
+    # PANEL 1: GOES Flux (Left Y) & Gradient (Right Y)
     # -------------------------------------------------------------------------
     ax1_flux = axes[0]
     ax1_grad = ax1_flux.twinx()
 
-    # Plot GOES Flux (Log)
+    # Plot GOES Flux (Log Scale)
     line1 = ax1_flux.plot(goes_time_plot, goes_flare.quantity("xrsb"), color="tab:blue", label="GOES Flux (XRSB)")
     ax1_flux.set_ylabel("Flux (W m$^{-2}$)", color="tab:blue", fontweight="bold")
     ax1_flux.tick_params(axis='y', labelcolor="tab:blue")
     ax1_flux.set_yscale("log")
+    _apply_ylim(ax1_flux, ylim_goes_flux)
 
-    # Plot Gradient (Log) - Mask <= 0 values to prevent log scale errors/warnings
-    grad_positive = np.where(gradient > 0, gradient, np.nan)
-    line2 = ax1_grad.plot(goes_time_plot, grad_positive, color="tab:red", linestyle="--", alpha=0.85,
-                          label="Flux Gradient")
+    # Plot Full Gradient (Linear Scale - plots raw data including negative values)
+    line2 = ax1_grad.plot(goes_time_plot, gradient, color="tab:red", linestyle="--", alpha=0.85, label="Flux Gradient")
     ax1_grad.set_ylabel("Gradient (W m$^{-2}$ s$^{-1}$)", color="tab:red", fontweight="bold")
     ax1_grad.tick_params(axis='y', labelcolor="tab:red")
     ax1_grad.set_yscale("linear")
@@ -1712,6 +1751,7 @@ def plot_flare_summary(
     ax2.set_ylabel("H-alpha Intensity", fontweight="bold")
     ax2.legend(loc="upper left", frameon=True, facecolor="white", framealpha=0.85)
     ax2.grid(True, which="both", linestyle=":", alpha=0.4)
+    _apply_ylim(ax2, ylim_halpha)
 
     # -------------------------------------------------------------------------
     # PANEL 3: SlitJaw Intensity Profile
@@ -1721,6 +1761,7 @@ def plot_flare_summary(
     ax3.set_ylabel("Relative Intensity", fontweight="bold")
     ax3.legend(loc="upper left", frameon=True, facecolor="white", framealpha=0.85)
     ax3.grid(True, which="both", linestyle=":", alpha=0.4)
+    _apply_ylim(ax3, ylim_intensity)
 
     # -------------------------------------------------------------------------
     # PANEL 4 (Optional): Eruption Active Pixel Ratio (From Cache)
@@ -1731,6 +1772,7 @@ def plot_flare_summary(
         ax4.set_ylabel("Eruption Pixel Ratio", fontweight="bold")
         ax4.legend(loc="upper left", frameon=True, facecolor="white", framealpha=0.85)
         ax4.grid(True, which="both", linestyle=":", alpha=0.4)
+        _apply_ylim(ax4, ylim_eruption)
 
     # Bottom Axis Formatting
     bottom_ax = axes[-1]

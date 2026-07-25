@@ -962,3 +962,46 @@ def process_fits_in_batches(file_paths, master_dark=None, batch_size=50, logger=
     master_frame = (sum_frame / n_files).astype(np.float32)
     return master_frame, intensities
 
+import numpy as np
+import pandas as pd
+from astropy.time import Time
+
+def normalize_spectrum_by_reference(
+    spectrum_data: np.ndarray,
+    spectrum_times,
+    reference_values: np.ndarray,
+    reference_times
+) -> np.ndarray:
+    """
+    Interpolates reference values onto the spectrum's timestamp grid
+    and returns the normalized spectral intensity array.
+
+    Parameters:
+        spectrum_data (np.ndarray): 1D array of spectral intensity (e.g. H-alpha core).
+        spectrum_times: Array/List of timestamps for the spectrum data.
+        reference_values (np.ndarray): 1D array of reference intensities (different size).
+        reference_times: Array/List of timestamps corresponding to the reference values.
+
+    Returns:
+        np.ndarray: Normalized spectral intensity matching the length of `spectrum_data`.
+    """
+    def _to_unix_seconds(times):
+        """Helper to convert various timestamp formats to numeric seconds."""
+        if isinstance(times, Time):
+            return times.unix
+        if hasattr(times, 'unix'):
+            return times.unix
+        # Convert lists of datetimes, pandas series, or numpy datetime arrays
+        return pd.to_datetime(times).astype('int64').values / 1e9
+
+    # Convert both time series to numeric seconds for linear interpolation
+    ref_sec = _to_unix_seconds(reference_times)
+    spec_sec = _to_unix_seconds(spectrum_times)
+
+    # Interpolate reference values onto the spectrum time axis
+    interpolated_reference = np.interp(spec_sec, ref_sec, reference_values)
+
+    # Normalize/correct spectrum
+    corrected_spectrum = spectrum_data / interpolated_reference
+
+    return corrected_spectrum

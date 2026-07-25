@@ -43,58 +43,58 @@ def average_numpy_array(
     return avg.astype(out_dtype, copy=False)
 
 
-def average_hdf_light(
-        hdf_dir: str,
-        light_idx: int,
-        axis: int = 0,
-        out_dtype: np.dtype = np.int16,
-        save=False,
-        names=("master_image", ["C", "D"]),
-        logger=None
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Load C and D light HDF files (spectrum) from a directory, compute their averages
-    along a given axis, and cast to the requested output dtype.
-
-    Parameters
-    ----------
-    hdf_dir : str
-        Directory containing C and D .hdf files.
-    light_idx : int
-        Light index passed to the Light constructor.
-    axis : int, optional
-        Axis along which the average is computed (default: 0).
-    out_dtype : np.dtype, optional
-        Output data type (default: np.int16).
-    logger : optional
-        Logger with .debug() method.
-
-    Returns
-    -------
-    (avg_C, avg_D) : tuple of np.ndarray
-        Averaged C and D light data arrays.
-    """
-    if logger is not None:
-        logger.debug(
-            "Averaging C and D light from %s, axis=%d, dtype=%s",
-            hdf_dir,
-            axis,
-            out_dtype,
-        )
-
-    mC, mD = load_hdf_light(hdf_dir=hdf_dir, light_idx=light_idx)
-
-    avg_C = average_numpy_array(
-        mC,
-        axis=axis,
-        out_dtype=out_dtype,
-    )
-    avg_D = average_numpy_array(
-        mD,
-        axis=axis,
-        out_dtype=out_dtype,
-    )
-    return avg_C, avg_D
+# def average_hdf_light(
+#         hdf_dir: str,
+#         light_idx: int,
+#         axis: int = 0,
+#         out_dtype: np.dtype = np.int16,
+#         save=False,
+#         names=("master_image", ["C", "D"]),
+#         logger=None
+# ) -> Tuple[np.ndarray, np.ndarray]:
+#     """
+#     Load C and D light HDF files (spectrum) from a directory, compute their averages
+#     along a given axis, and cast to the requested output dtype.
+#
+#     Parameters
+#     ----------
+#     hdf_dir : str
+#         Directory containing C and D .hdf files.
+#     light_idx : int
+#         Light index passed to the Light constructor.
+#     axis : int, optional
+#         Axis along which the average is computed (default: 0).
+#     out_dtype : np.dtype, optional
+#         Output data type (default: np.int16).
+#     logger : optional
+#         Logger with .debug() method.
+#
+#     Returns
+#     -------
+#     (avg_C, avg_D) : tuple of np.ndarray
+#         Averaged C and D light data arrays.
+#     """
+#     if logger is not None:
+#         logger.debug(
+#             "Averaging C and D light from %s, axis=%d, dtype=%s",
+#             hdf_dir,
+#             axis,
+#             out_dtype,
+#         )
+#
+#     mC, mD = load_hdf_light(hdf_dir=hdf_dir, light_idx=light_idx)
+#
+#     avg_C = average_numpy_array(
+#         mC,
+#         axis=axis,
+#         out_dtype=out_dtype,
+#     )
+#     avg_D = average_numpy_array(
+#         mD,
+#         axis=axis,
+#         out_dtype=out_dtype,
+#     )
+#     return avg_C, avg_D
 
 
 def analyze_dark_frame(
@@ -471,7 +471,7 @@ def slice_and_calculate_h_alpha(light_obj, t_start, t_end, center_idx: int = 137
     # Calculate integrated (summed) intensity across the spectral line for each time step
     h_alpha_integrated = np.mean(h_alpha_raw, axis=1)
 
-    return timerange, h_alpha_integrated / h_alpha_integrated[5]
+    return timerange, h_alpha_integrated / h_alpha_integrated[0]
 
 
 def sum_circle_values(images_array,

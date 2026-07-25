@@ -155,20 +155,22 @@ if __name__ == "__main__":
     CUT_FRONT = 0
     CUT_BACK = 0
 
-    # --- Core Calibration Crop Bounds ---
-    CALIB_XMIN, CALIB_XMAX = 500, 1500
-    CALIB_YMIN, CALIB_YMAX = 100, 1000
+    # processing of the images
     PROC_BATCH_SIZE = 100
     GRID_PREVIEW_IMG = 4
+    REF_NUM_PLOTS = 4
+    REF_VMAX = 1.5
 
     # --- Dark Frame Analysis Setup ---
     DARK_FIGSIZE = (14, 10)
 
+    # --- Core Calibration Crop Bounds ---
+    CALIB_XMIN, CALIB_XMAX = 500, 1500
+    CALIB_YMIN, CALIB_YMAX = 100, 1000
+
     # --- Reference Box Bounds & Metrics (analyze_and_plot_rect) ---
     REF_XMIN, REF_XMAX = 50, 150
     REF_YMIN, REF_YMAX = 450, 550
-    REF_NUM_PLOTS = 4
-    REF_VMAX = 1.5
 
     # --- Eruption Crop Box Shifts & Parameters ---
     ERUPTION_POSUN_X = 52
@@ -192,8 +194,8 @@ if __name__ == "__main__":
 
     # --- Global Plot Visibility Toggles ---
     SHOW_DIAGNOSTIC_PLOTS = False
-    CREATE_ANIMATION = True  # <--- Toggle to enable/disable eruption animation video
-    ANIMATION_FPS = 10       # Video playback speed
+    CREATE_ANIMATION = False  # <--- Toggle to enable/disable eruption animation video
+    ANIMATION_FPS = 10  # Video playback speed
     # -----------------------------------------------------------------
 
     # Initialize logging ecosystem
@@ -268,7 +270,8 @@ if __name__ == "__main__":
         if plot_time_axis is not None:
             plot_time_axis = plot_time_axis[start_idx:end_idx]
         if logger:
-            logger.info(f"✂️ Scaled dataset: Cut {CUT_FRONT} from front, {CUT_BACK} from back. New Stack: {flat_cor.shape}")
+            logger.info(
+                f"✂️ Scaled dataset: Cut {CUT_FRONT} from front, {CUT_BACK} from back. New Stack: {flat_cor.shape}")
     else:
         if logger:
             logger.warning("⚠️ Cut parameters are larger than total frames available! Skipping cut.")
@@ -414,6 +417,13 @@ if __name__ == "__main__":
         sigma_level=ERUPTION_SIGMA_LEVEL,
         logger=logger
     )
+
+    # ---- SAVE TO CACHE (.npy) ----
+    cache_save_path = os.path.join(DIR_CACHE, "normalized_erupting_pixels.npy")
+    np.save(cache_save_path, erupting_ratios)
+
+    if logger:
+        logger.info(f"Cached normalized erupting pixels to {cache_save_path}")
 
     plot_single_series(
         data=erupting_ratios,
