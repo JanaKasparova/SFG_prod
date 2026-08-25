@@ -90,7 +90,7 @@ Open `MAKING_PLOTS_xxx.py` and update the calibration and region variables near 
 Important script behaviour:
 - `MAKING_PLOTS_xxx.py` will look for master files at `MASTER_SAVE/<date>/master_flat.fits` and `master_dark.fits` by default — make sure the date suffix matches the masters created in step 2.
 - The script will create a disk-backed cache under `CACHE_DATA/<date>/` containing `final_flat_corrected_data.npy` (memory-mapped calibrated stack) and `cropped_dark.npy`. It will also save `normalized_erupting_pixels.npy` (used by the GOES plot step).
-- Note that eruption bounding box should not be much larger than the reference rectangle, reference value is calculated from the reference rectangle within a circle of the same coordinates `ERUPTION_CENTER` & `ERUPTION_RADIUS` which are defined with respect to `ERUPTION_XMIN/ERUPTION_XMAX`, `ERUPTION_YMIN/ERUPTION_YMAX` but used also with respect to `REF_XMIN/REF_XMAX`, `REF_YMIN/REF_YMAX`, see GOES_plot below.
+- Note that the eruption bounding box should not be much larger than the reference rectangle, reference value is calculated from the reference rectangle within a circle of the same coordinates `ERUPTION_CENTER` & `ERUPTION_RADIUS` which are defined with respect to `ERUPTION_XMIN/ERUPTION_XMAX`, `ERUPTION_YMIN/ERUPTION_YMAX` but used also with respect to `REF_XMIN/REF_XMAX`, `REF_YMIN/REF_YMAX`, see GOES_plot below.
 
 Run (example):
 
