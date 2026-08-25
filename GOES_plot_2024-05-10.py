@@ -34,6 +34,10 @@ if __name__ == "__main__":
     GOES_BUFFER_HOURS = 1.5
     GOES_CHANNEL = "xrsb"
 
+    # --- Core Calibration Crop Bounds ---
+    CALIB_XMIN, CALIB_XMAX = 368, 1249
+    CALIB_YMIN, CALIB_YMAX = 304, 912
+    
     # --- Reference Box Bounds & Metrics ---
     REF_XMIN, REF_XMAX = 415, 642
     REF_YMIN, REF_YMAX = 420, 648
@@ -201,8 +205,8 @@ if __name__ == "__main__":
     )
     plot_image_with_crop(
         sample_frame,
-        xmin=REF_XMIN, xmax=REF_XMAX,
-        ymin=REF_YMIN, ymax=REF_YMAX,
+        xmin=REF_XMIN + CALIB_XMIN, xmax=REF_XMAX + CALIB_XMIN,
+        ymin=REF_YMIN + CALIB_YMIN, ymax=REF_YMAX + CALIB_YMIN,
         title_full="Full SlitJaw Frame (Reference Bounds)",
         title_crop="Cropped Reference Region",
         save_name=SAVE_DIAG_REF_CROP,
