@@ -1,11 +1,23 @@
-Notes on running locally in Ondrejov - checking the results given in SFG report
+Notes on running locally in Ondrejov - checking the results given in the SFG report
+==================================================================================
 
-fing_crop_values_2024-07-29.py: calibration bounds are selected on master_flat, therefore premaking_masters_2024_07_29.py must be run first
-other find_crop_values...py use sampled flats to define calibration bounds
+* fing_crop_values_2024-07-29.py: calibration bounds are selected on master_flat, therefore premaking_masters_2024_07_29.py must be run first
+other find_crop_values...py use sampled flats to define calibration bounds, no need to have master_flat
 
-GOES_plot...py does not work for GOES 19 data - problem within sunpy or sunkit-instruments probably, using url of a given GOES 19 data file works, e.g.
+* GOES_plot...py does not work for GOES 19 data - problem within sunpy or sunkit-instruments probably, using url of a given GOES 19 data file works, e.g.
+
 from sunpy.timeseries import TimeSeries
 url_goes19 = ("https://data.ngdc.noaa.gov/platforms/solar-space-observing-satellites/goes/goes19/l2/data/xrsf-l2-flx1s_science/2026/03/sci_xrsf-l2-flx1s_g19_d20260318_v2-2-1.nc")
 goes_ts = TimeSeries(url_goes19)
 goes_ts.peek() 
+
 --> modify GOES_plot to use other data if plot is not correct - missing data within the given time range
+
+* i kdyz v reportu je zmineno, ze velikost erupcni oblasti a referencni oblasti je zhruba stejna, v README.md toto neni zmineno. Myslim, ze je to podstatny predpoklad softwaru, 
+protoze graf "relative intensity" (3.graf z tech, ktere vytvori GOES_plot...) skaluje intenzitu uvnitr kruhu (definovanym ERUPTION_CENTER a ERUPTION_RADIUS) stejne velkym kruhem 
+z referencni oblasti - viz funkce sum_circle_values() s crop_bounds=REF_BOUNDS, circle_center=REF_CENTER, circle_radius=REF_RADIUS (napr. radek 241 v GOES_plot_2026-07-10.py, kde 
+REF_CENTER==ERUPTION_CENTER a REF_RADIUS==ERUPTION_RADIUS). Pokud ale rozmery erupcni a referencni oblasti jsou vyrazne jine (napr. referencni oblast je mnohem mensi), referencni 
+kruh muze z referencni oblasti "vyjet" za jeji hranice. Funkce sum_circle_values() toto nekontroluje. Na toto chovani jsme narazili, protoze zkousime trochu jiny postup, jako referencni 
+oblast bereme klidne slunce, ktere je zhruba ve stejne vzdalenosti od okraje slunecniho disku, abychom vzali do uvahy okrajove ztemneni. 
+
+--> modify README.md so size of reference frame is similar or larger than eruption area, check for valid values within circle in reference frame
