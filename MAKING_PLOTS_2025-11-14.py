@@ -225,8 +225,8 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------
     # --- Paths & Directories ---
     FITS_DATA_FOLDER = "./sfg/2025-11-14-X4.1/sun_area/SlitJaw"
-    FILE_MASTER_FLAT = "MASTER_SAVE/2024-05-10/master_flat.fits"
-    FILE_MASTER_DARK = "MASTER_SAVE/2024-05-10/master_dark.fits"
+    FILE_MASTER_FLAT = "MASTER_SAVE/2025-11-14/master_flat.fits"
+    FILE_MASTER_DARK = "MASTER_SAVE/2025-11-14/master_dark.fits"
     PARENT_CACHE = "CACHE_DATA"
     DIR_PLOTS = "Plots/2025-11-14"  # Centralized plots folder
 
