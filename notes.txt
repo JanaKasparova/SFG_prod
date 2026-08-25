@@ -3,7 +3,7 @@ Notes on running locally in Ondrejov - checking the results given in SFG report
 fing_crop_values_2024-07-29.py: calibration bounds are selected on master_flat, therefore premaking_masters_2024_07_29.py must be run first
 other find_crop_values...py use sampled flats to define calibration bounds
 
-GOES_plot...py does not work for GOES 19 data - problem within sunpy or sunkit-instruments probably, using url of a gven GOES 19 data file works, e.g.
+GOES_plot...py does not work for GOES 19 data - problem within sunpy or sunkit-instruments probably, using url of a given GOES 19 data file works, e.g.
 from sunpy.timeseries import TimeSeries
 url_goes19 = ("https://data.ngdc.noaa.gov/platforms/solar-space-observing-satellites/goes/goes19/l2/data/xrsf-l2-flx1s_science/2026/03/sci_xrsf-l2-flx1s_g19_d20260318_v2-2-1.nc")
 goes_ts = TimeSeries(url_goes19)
