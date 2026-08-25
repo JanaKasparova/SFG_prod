@@ -26,5 +26,5 @@ oblast bereme klidne slunce, ktere je zhruba ve stejne vzdalenosti od okraje slu
 diag_crop_reference... png are created using uncropped images, i.e. sample_frame = fits.getdata(slitjaw_files[0]).astype(np.float32) --> calls to plot_image_with_crop() must use xmin = ..+ CALIB_XMIN, 
 xmax = ... and ymin = ... + CALIB_YMIN, ymax = ...
 
-* for 2026-07-10 data plot variables h_alpha_core_corrected and h_alpha_continuum_corrected separately and compare variable reference_values with mean value inside reference region, 
-should not be very different
+* for 2026-07-10 data plot variables h_alpha_core_corrected and h_alpha_continuum_corrected separately and compare variable reference_values with mean values inside reference region, 
+should not be very different (reference_values are from a circle, mean values are from reference box)
