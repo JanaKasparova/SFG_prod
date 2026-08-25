@@ -25,3 +25,6 @@ oblast bereme klidne slunce, ktere je zhruba ve stejne vzdalenosti od okraje slu
 * all GOES_plot..py scripts need definition of CALIB_XMIN and CALIB_YMIN because reference and eruption region coordinates are with respect to calibration region but diag_crop_eruption..png and
 diag_crop_reference... png are created using uncropped images, i.e. sample_frame = fits.getdata(slitjaw_files[0]).astype(np.float32) --> calls to plot_image_with_crop() must use xmin = ..+ CALIB_XMIN, 
 xmax = ... and ymin = ... + CALIB_YMIN, ymax = ...
+
+* f or 2026-07-10 data plot variables h_alpha_core_corrected and h_alpha_continuum_corrected separately and compare variable reference_values with mean value inside reference region, 
+should not be very different
