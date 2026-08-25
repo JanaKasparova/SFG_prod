@@ -21,3 +21,7 @@ kruh muze z referencni oblasti "vyjet" za jeji hranice. Funkce sum_circle_values
 oblast bereme klidne slunce, ktere je zhruba ve stejne vzdalenosti od okraje slunecniho disku, abychom vzali do uvahy okrajove ztemneni. 
 
 --> modify README.md so size of reference frame is similar or larger than eruption area, check for valid values within circle in reference frame
+
+* all GOES_plot..py scripts need definition of CALIB_XMIN and CALIB_YMIN because reference and eruption region coordinates are with respect to calibration region but diag_crop_eruption..png and
+diag_crop_reference... png are created using uncropped images, i.e. sample_frame = fits.getdata(slitjaw_files[0]).astype(np.float32) --> calls to plot_image_with_crop() must use xmin = ..+ CALIB_XMIN, 
+xmax = ... and ymin = ... + CALIB_YMIN, ymax = ...
