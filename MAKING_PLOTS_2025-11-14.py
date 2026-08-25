@@ -96,8 +96,8 @@ def get_calibrated_data(
 
     # Crop calibration frames
     cropped_flat = crop_images(master_flat,
-                               xmin=xmin + 130, xmax=xmax + 130,
-                               ymin=ymin + 31, ymax=ymax + 31,
+                               xmin=xmin, xmax=xmax,
+                               ymin=ymin, ymax=ymax,
                                logger=logger)
     cropped_dark = crop_images(master_dark,
                                xmin=xmin, xmax=xmax,
