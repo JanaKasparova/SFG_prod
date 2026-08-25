@@ -27,4 +27,4 @@ diag_crop_reference... png are created using uncropped images, i.e. sample_frame
 xmax = ... and ymin = ... + CALIB_YMIN, ymax = ...
 
 * for 2026-07-10 data plot variables h_alpha_core_corrected and h_alpha_continuum_corrected separately and compare variable reference_values with mean values inside reference region, 
-should not be very different (reference_values are from a circle, mean values are from reference box)
+should not be very different (reference_values are from a circle - function sum_circle_values from analysis.py, mean values are from reference box)
